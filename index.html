@@ -3,27 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>창원경화카풀 통합 통제 시스템 v21</title>
-  <!-- Tailwind CSS CDN -->
+  <title>창원경화카풀 통합 통제 시스템 v22</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <!-- Alpine.js CDN -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex justify-center items-center p-4">
 
-  <!-- Alpine.js 중앙 상태 제어 엔진 -->
   <div x-data="{
     step: 'passenger', 
     notice: '📢 운전자와 동승자가 여러 차례 충분한 의사 소통을 하세요.',
     inputNotice: '',
 
-    // [🔐 로그인 통합 회원 상태 정보]
     isUserLoggedIn: false, 
     loginName: '',
     loginPhoneTail: '',
     currentUser: null, 
 
-    // [👑 관리자 마스터 인증 상태 및 계정 정보]
     isAdminAuthenticated: false,
     adminIdInput: '',
     adminPasswordInput: '',
@@ -35,12 +30,11 @@
     newAdminPassword: '',
     showPasswordModal: false,
 
-    // [👥 화이트리스트 회원 관리 DB]
+    // [👥 화이트리스트 회원 관리 DB] - 로컬스토리지 연동
     allowedMembers: [],
     newMemberName: '',
     newMemberPhone: '',
 
-    // [기본 정류소 목록]
     masterStops: [
       { id: 'stop1', name: '중앙시장 (태백사거리 방면)', address: '519808 정류소' },
       { id: 'stop2', name: '중부시장입구 (경화성당 방면)', address: '5199818 정류소' },
@@ -52,39 +46,63 @@
       { id: 'stop8', name: '삼정코아 (두산위브 방면)', address: '516406 정류소' }
     ],
 
-    // [운전자 입력 데이터]
     inputDate: '', 
     inputTime: '18:30',
     inputSeats: 1, 
     inputDriverPhone: '010-', 
     selectedStopIds: [], 
     driverOrderedStops: [],
-
-    // [동승자 입력 추가 데이터]
     inputPassengerPhone: '010-',
-
-    // 드래그 앤 드롭 전용 추적 변수
     draggedIndex: null,
 
-    // [실시간 카풀 스케줄 DB]
+    // [실시간 카풀 스케줄 DB] - 로컬스토리지 연동
     trips: [],
 
     selectedTrip: null,
     passengerPickup: '',
     passengerCount: 1,
     
-    // [📱 알림 전송 버퍼 코어]
-    lastReservedData: null, // 동승자 -> 운전자 알림용
-    lastDriverActionData: null, // 운전자 -> 동승자 알림용
+    lastReservedData: null, 
+    lastDriverActionData: null, 
 
-    init() {
+    // 시스템 시작 시 브라우저 저장소에서 기존 데이터를 안전하게 불러오는 코어 함수
+    initSystem() {
       this.inputNotice = this.notice;
       
       const today = new Date();
       this.inputDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
+      // 1. 기존 저장된 회원 명단 로드 (없으면 기본 테스트 계정 제공)
+      const savedMembers = localStorage.getItem('carpool_members');
+      if (savedMembers) {
+        this.allowedMembers = JSON.parse(savedMembers);
+      } else {
+        // 기본 테스트용으로 미리 심어둔 계정 데이터 (언제든 로그인 가능)
+        this.allowedMembers = [
+          { id: 'm_default1', name: '홍길동', phoneTail: '1234' },
+          { id: 'm_default2', name: '이순신', phoneTail: '5678' },
+          { id: 'm_default3', name: '김경화', phoneTail: '0000' }
+        ];
+        this.saveMembersToStorage();
+      }
+
+      // 2. 기존 저장된 카풀 피드 로드
+      const savedTrips = localStorage.getItem('carpool_trips');
+      if (savedTrips) {
+        this.trips = JSON.parse(savedTrips);
+      }
+
       this.updateDriverRouteList();
       this.$watch('selectedStopIds', () => this.updateDriverRouteList());
+    },
+
+    // 데이터 영구 저장을 위한 헬퍼 함수들
+    saveMembersToStorage() {
+      localStorage.setItem('carpool_members', JSON.stringify(this.allowedMembers));
+    },
+
+    saveTripsToStorage() {
+      localStorage.setItem('carpool_trips', JSON.stringify(this.trips));
     },
 
     getDayOfWeek(dateString) {
@@ -98,7 +116,6 @@
       return this.trips.filter(trip => trip.date >= todayStr);
     },
 
-    // 로그인한 운전자가 등록한 카풀 목록 가져오기
     get myDrivenTrips() {
       if (!this.currentUser) return [];
       return this.trips.filter(trip => trip.driverName === this.currentUser.name);
@@ -108,7 +125,13 @@
       if (!this.loginName.trim() || !this.loginPhoneTail.trim()) {
         return alert('이름과 전화번호 뒷자리를 입력해 주세요.');
       }
-      const member = this.allowedMembers.find(m => m.name === this.loginName.trim() && m.phoneTail === this.loginPhoneTail.trim());
+      
+      // 공백 제거 후 정확한 비교 매칭 구동
+      const targetName = this.loginName.trim();
+      const targetTail = this.loginPhoneTail.trim();
+
+      const member = this.allowedMembers.find(m => m.name === targetName && m.phoneTail === targetTail);
+      
       if (member) {
         this.currentUser = member;
         this.isAdminAuthenticated = false;
@@ -116,7 +139,7 @@
         this.step = 'passenger';
         alert(`🔓 인증 성공! [${member.name}]님 반갑습니다.`);
       } else {
-        alert('❌ 승인된 사용자가 아닙니다. 관리자 데스크에 등록 요청을 진행해 주세요.');
+        alert('❌ 승인된 사용자가 아닙니다. 성명과 뒷자리가 명단과 일치하는지 확인하거나, 관리자 모드에서 명단을 재확인해 주세요.');
       }
     },
 
@@ -165,12 +188,25 @@
       if (!this.newMemberName.trim() || !this.newMemberPhone.trim()) {
         return alert('이름과 전화번호 뒷자리 4자리를 기입해 주세요.');
       }
+      
+      const memberName = this.newMemberName.trim();
+      const memberPhone = this.newMemberPhone.trim();
+
+      // 중복 체크 가드 코드
+      if (this.allowedMembers.some(m => m.name === memberName && m.phoneTail === memberPhone)) {
+        return alert('⚠️ 이미 동일하게 명단에 등록되어 있는 회원입니다.');
+      }
+
       this.allowedMembers.push({
         id: 'm_' + Date.now(),
-        name: this.newMemberName.trim(),
-        phoneTail: this.newMemberPhone.trim()
+        name: memberName,
+        phoneTail: memberPhone
       });
-      alert(`👥 멤버 [${this.newMemberName}]님이 승인 명단에 추가되었습니다.`);
+      
+      // 즉시 로컬스토리지 저장 유도
+      this.saveMembersToStorage();
+
+      alert(`👥 멤버 [${memberName}]님이 승인 명단에 추가 및 영구 보존되었습니다.\n이제 초기 화면에서 [${memberName}] 이름과 뒷자리 [${memberPhone}] 입력으로 바로 로그인 가능합니다.`);
       this.newMemberName = '';
       this.newMemberPhone = '';
     },
@@ -178,6 +214,9 @@
     removeMember(memberId, name) {
       if (!confirm(`🚨 [${name}] 멤버를 명단에서 완전히 삭제하시겠습니까?`)) return;
       this.allowedMembers = this.allowedMembers.filter(m => m.id !== memberId);
+      
+      this.saveMembersToStorage(); // 반영 저장
+      
       if (this.currentUser && this.currentUser.name === name) this.userLogout();
     },
 
@@ -251,9 +290,9 @@
       };
       
       this.trips.unshift(newTrip);
+      this.saveTripsToStorage(); // 영구 저장
       
       alert(`🚗 [등록완료] ${finalDriverName} 운전자의 카풀 피드가 생성되었습니다.`);
-      
       this.selectedStopIds = [];
       this.inputSeats = 1;
     },
@@ -270,6 +309,7 @@
 
       trip.totalSeats = newTotal;
       trip.remainingSeats = newTotal - approvedSeats;
+      this.saveTripsToStorage(); // 변경 저장
       alert(`📐 모집 좌석이 총 ${newTotal}석(잔여 ${trip.remainingSeats}석)으로 변경되었습니다.`);
     },
 
@@ -302,6 +342,7 @@
       };
       
       this.selectedTrip.passengers.push(newPassenger);
+      this.saveTripsToStorage(); // 신청 내역 저장
 
       this.lastReservedData = {
         driverName: this.selectedTrip.driverName,
@@ -316,7 +357,6 @@
       alert('🎉 카풀 탑승 신청이 완료되었습니다.\n[운전자에게 알림 전송] 패널을 사용해 예약을 바로 전달하세요!');
     },
 
-    // 운전자가 동승자 신청을 수락하는 기능
     acceptPassenger(trip, passenger) {
       if (trip.remainingSeats < passenger.count) {
         return alert('❌ 차량 잔여 좌석이 부족하여 수락할 수 없습니다.');
@@ -324,6 +364,7 @@
       
       passenger.status = 'approved';
       trip.remainingSeats -= passenger.count;
+      this.saveTripsToStorage(); // 상태 변동 저장
 
       this.lastDriverActionData = {
         type: '수락',
@@ -337,12 +378,12 @@
       };
     },
 
-    // 운전자가 동승자 신청을 거절하는 기능
     rejectPassenger(trip, passenger) {
       if (passenger.status === 'approved') {
         trip.remainingSeats += passenger.count;
       }
       passenger.status = 'rejected';
+      this.saveTripsToStorage(); // 상태 변동 저장
 
       this.lastDriverActionData = {
         type: '거절',
@@ -356,7 +397,6 @@
       };
     },
 
-    // 운전자 -> 동승자 문자 발송
     sendDriverSms() {
       if (!this.lastDriverActionData) return;
       const d = this.lastDriverActionData;
@@ -364,7 +404,6 @@
       window.location.href = `sms:${d.passengerPhone}?body=${encodeURIComponent(message)}`;
     },
 
-    // 운전자 -> 동승자 카톡 내용 복사
     copyDriverKakaoText() {
       if (!this.lastDriverActionData) return;
       const d = this.lastDriverActionData;
@@ -375,7 +414,6 @@
       }).catch(() => alert('복사 실패'));
     },
 
-    // 동승자 -> 운전자 알림 전송
     sendSmsNotification() {
       if (!this.lastReservedData) return;
       const d = this.lastReservedData;
@@ -403,6 +441,8 @@
       trip.passengers = trip.passengers.filter(p => p.id !== passenger.id);
       if (this.selectedTrip && this.selectedTrip.id === trip.id) this.selectedTrip = null;
       this.lastReservedData = null;
+      
+      this.saveTripsToStorage(); // 파기 상태 저장
       alert('❌ 탑승 신청 취소가 정상 처리되었습니다.');
     },
 
@@ -410,29 +450,28 @@
       this.lastDriverActionData = null;
     },
 
-    // 운전자가 직접 자신의 카풀 일정을 전체 파기/취소하는 기능
     cancelDriverTrip(trip, isAdminAction = false) {
       if (!confirm(isAdminAction ? `🚨 [관리자 조치] 운전자 '${trip.driverName}' 스케줄을 강제 파기할까요?` : '등록하신 카풀 전체 일정을 취소(파기)하시겠습니까?')) return;
       this.trips = this.trips.filter(t => t.id !== trip.id);
       this.selectedTrip = null;
       this.lastReservedData = null;
       this.lastDriverActionData = null;
+      
+      this.saveTripsToStorage(); // 파기 상태 저장
       alert('❌ 카풀 등록 일정이 완전히 파기되었습니다.');
     }
-  }" class="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col h-[880px] relative">
+  }" x-init="initSystem()" class="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col h-[880px] relative">
 
-    <!-- 상단 앱 브랜딩 바 -->
     <div class="bg-gray-900 text-white px-4 py-3 flex justify-between items-center text-xs">
       <div class="flex items-center gap-2 w-full">
         <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀</span>
         <div class="flex items-center gap-2 ml-auto" x-show="isUserLoggedIn">
           <span class="text-gray-300 font-bold" x-text="`👤 ${currentUser?.name}님`"></span>
-          <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px]">로그아웃</button>
+          <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px] cursor-pointer">로그아웃</button>
         </div>
       </div>
     </div>
 
-    <!-- ==================== [🚪 CASE A. 로그아웃 상태의 대기 게이트웨이] ==================== -->
     <template x-if="!isUserLoggedIn">
       <div class="flex-1 flex flex-col justify-center items-center p-6 space-y-6 bg-gray-50">
         <div class="text-center space-y-2">
@@ -442,6 +481,9 @@
             관리자가 미리 승인 및 명단에 등록한<br>
             이용자만 로그인하여 진입할 수 있습니다.
           </p>
+          <div class="bg-blue-50 p-2 text-[10px] text-blue-800 rounded-lg font-bold">
+            💡 테스트 기본 계정: 홍길동 (1234) / 이순신 (5678)
+          </div>
         </div>
 
         <div class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-3.5">
@@ -451,9 +493,9 @@
           </div>
           <div>
             <label class="block text-xs font-bold text-gray-500 mb-1">전화번호 뒷자리 (4자리)</label>
-            <input type="password" maxlength="4" x-model="loginPhoneTail" placeholder="예: 1234" class="w-full p-2.5 text-xs border border-gray-200 rounded-xl text-center font-bold bg-gray-50 focus:bg-white focus:outline-none">
+            <input type="password" maxlength="4" x-model="loginPhoneTail" placeholder="예: 1234" class="w-full p-2.5 text-xs border border-gray-200 rounded-xl text-center font-bold bg-gray-50 focus:bg-white focus:outline-none" @keydown.enter="tryUserLogin()">
           </div>
-          <button @click="tryUserLogin()" class="w-full bg-emerald-600 text-white font-black py-3 rounded-xl text-xs shadow-md">
+          <button @click="tryUserLogin()" class="w-full bg-emerald-600 text-white font-black py-3 rounded-xl text-xs shadow-md cursor-pointer">
             멤버 인증 및 로그인
           </button>
         </div>
@@ -464,11 +506,9 @@
       </div>
     </template>
 
-    <!-- ==================== [📱 CASE B. 정상 연동 가동 상태 메인 인터페이스] ==================== -->
     <template x-if="isUserLoggedIn">
       <div class="flex-1 flex flex-col overflow-hidden">
         
-        <!-- 대메뉴 탭 릴레이 -->
         <div class="flex border-b border-gray-100 bg-gray-50 p-2 gap-1 shrink-0">
           <button x-show="isAdminAuthenticated" @click="step = 'admin';" 
                   :class="step === 'admin' ? 'bg-red-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
@@ -482,15 +522,12 @@
           </button>
         </div>
 
-        <!-- 필수 고정 요구 공지 배너 -->
         <div class="bg-amber-50 border-b border-amber-100 px-4 py-2.5 text-xs text-amber-800 font-bold text-center shrink-0" x-show="notice">
           <div x-text="notice"></div>
         </div>
 
-        <!-- 스크롤 컨테이너 코어 -->
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
 
-          <!-- 👑 [🛠️ 1. 관리자 전용 마스터 컨트롤 본문] -->
           <template x-if="step === 'admin' && isAdminAuthenticated">
             <div class="space-y-4">
               
@@ -499,10 +536,9 @@
                   <h2 class="text-xs font-black text-red-900">👑 최고 관리자 통제 제어실</h2>
                   <p class="text-[10px] text-red-600 mt-0.5">시스템 권한 및 화이트리스트 조율 중</p>
                 </div>
-                <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded">제어실 로그아웃</button>
+                <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded cursor-pointer">제어실 로그아웃</button>
               </div>
 
-              <!-- 관리자 계정정보 변경 패널 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
                 <span class="text-xs font-black text-red-600 block">🔒 관리자 마스터 계정 정보 변경</span>
                 <div class="grid grid-cols-2 gap-2 text-xs">
@@ -515,36 +551,34 @@
                     <input type="text" x-model="newAdminPassword" class="w-full p-2 border rounded-lg bg-gray-50 font-bold text-center">
                   </div>
                 </div>
-                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-black py-2 rounded-lg text-xs tracking-wide">
+                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-black py-2 rounded-lg text-xs tracking-wide cursor-pointer">
                   ⚙️ 아이디 및 비밀번호 조합 최종 변경 적용
                 </button>
               </div>
 
-              <!-- 화이트리스트 회원 관리 섹션 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3">
-                <span class="text-xs font-black text-gray-800 block">👥 카풀 이용 허가 회원 명단 통제</span>
+                <span class="text-xs font-black text-gray-800 block">👥 카풀 이용 허가 회원 명단 통제 (영구저장됨)</span>
                 <div class="grid grid-cols-2 gap-2 text-xs">
                   <input type="text" x-model="newMemberName" placeholder="승인할 실명" class="p-2 border rounded-lg bg-gray-50 font-bold">
                   <input type="text" maxlength="4" x-model="newMemberPhone" placeholder="뒷4자리" class="p-2 border rounded-lg bg-gray-50 text-center font-bold">
                 </div>
-                <button @click="addAllowedMember()" class="w-full bg-gray-900 text-white font-bold py-2 rounded-lg text-xs">
+                <button @click="addAllowedMember()" class="w-full bg-gray-900 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">
                   ➕ 신규 명단 승인 등록
                 </button>
 
-                <div class="border-t border-gray-100 pt-2 space-y-1 max-h-28 overflow-y-auto">
+                <div class="border-t border-gray-100 pt-2 space-y-1 max-h-36 overflow-y-auto">
                   <template x-if="allowedMembers.length === 0">
                     <div class="text-center py-4 text-[11px] text-gray-400">등록된 허가 회원이 없습니다.</div>
                   </template>
                   <template x-for="m in allowedMembers" :key="m.id">
                     <div class="flex justify-between items-center text-xs p-1.5 bg-gray-50 rounded">
                       <span class="font-bold text-gray-700" x-text="`• ${m.name} (${m.phoneTail})`"></span>
-                      <button @click="removeMember(m.id, m.name)" class="text-[10px] text-red-500 font-bold px-2 py-0.5 rounded">허가취소</button>
+                      <button @click="removeMember(m.id, m.name)" class="text-[10px] text-red-500 font-bold px-2 py-0.5 rounded cursor-pointer">허가취소</button>
                     </div>
                   </template>
                 </div>
               </div>
 
-              <!-- 전체 실시간 배차 관리 테이블 -->
               <div class="space-y-2">
                 <label class="text-xs font-black text-gray-800 block">📋 [전역 인프라] 스케줄 및 예약 강제 조정</label>
                 <div class="space-y-2">
@@ -552,13 +586,13 @@
                     <div class="p-3 bg-white border border-gray-200 rounded-xl space-y-2 text-xs">
                       <div class="flex justify-between items-center">
                         <span class="font-extrabold text-gray-900" x-text="`🚗 운전자: ${trip.driverName} (${trip.date})`"></span>
-                        <button @click="cancelDriverTrip(trip, true)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold">운행 파기</button>
+                        <button @click="cancelDriverTrip(trip, true)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">운행 파기</button>
                       </div>
                       <div class="space-y-1 pt-1 border-t border-dashed border-gray-100">
                         <template x-for="p in trip.passengers" :key="p.id">
                           <div class="flex justify-between items-center bg-red-50/50 p-1 rounded">
                             <span class="text-gray-700 text-[11px]" x-text="`• ${p.name} [${p.status}] - 연락처: ${p.phone}`"></span>
-                            <button @click="cancelPassengerBooking(trip, p, true)" class="text-[10px] text-red-600 font-bold">취소조치</button>
+                            <button @click="cancelPassengerBooking(trip, p, true)" class="text-[10px] text-red-600 font-bold cursor-pointer">취소조치</button>
                           </div>
                         </template>
                       </div>
@@ -570,7 +604,6 @@
             </div>
           </template>
 
-          <!-- [👨‍✈️ 2. 운전자 모드] -->
           <template x-if="step === 'driver'">
             <div class="space-y-4">
               <div>
@@ -578,7 +611,6 @@
                 <p class="text-xs text-blue-600 mt-0.5 font-bold" x-text="`등록 계정주: ${currentUser?.name}`"></p>
               </div>
 
-              <!-- 운전자 입력 폼 -->
               <div class="bg-gray-50 p-3.5 rounded-xl border border-gray-100 space-y-2.5 text-xs">
                 <div class="bg-blue-50 p-2.5 rounded-lg border border-blue-100">
                   <label class="block font-black text-blue-900 mb-1">📞 운전자 본인 연락처</label>
@@ -603,7 +635,6 @@
                 </div>
               </div>
 
-              <!-- 정류소 설정 패널 -->
               <div class="space-y-1.5">
                 <label class="text-xs font-bold text-gray-700 block">☑️ 경유할 픽업 정류소 선택</label>
                 <div class="grid grid-cols-1 gap-1 max-h-24 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-100">
@@ -636,7 +667,6 @@
 
               <hr class="border-gray-100">
 
-              <!-- 📋 [명칭 변경] 카풀 관리 섹션 -->
               <div class="space-y-2">
                 <h3 class="text-xs font-black text-gray-800">📥 카풀 관리</h3>
                 <div class="space-y-2.5 max-h-[340px] overflow-y-auto">
@@ -646,14 +676,12 @@
                   <template x-for="trip in myDrivenTrips" :key="trip.id">
                     <div class="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2 text-xs">
                       
-                      <!-- 운전 일정 취소 및 좌석 수 동적 변경 기능 -->
                       <div class="flex flex-col gap-1.5 pb-2 border-b border-dashed border-blue-200">
                         <div class="flex justify-between items-center">
                           <span class="font-black text-blue-900" x-text="`📅 ${trip.date} (${trip.departureTime})`"></span>
-                          <button @click="cancelDriverTrip(trip)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold">내 운행 취소</button>
+                          <button @click="cancelDriverTrip(trip)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">내 운행 취소</button>
                         </div>
                         
-                        <!-- 모집 좌석 실시간 가변 셀렉터 -->
                         <div class="flex justify-between items-center bg-white p-1.5 rounded border border-blue-100 text-[11px]">
                           <span class="font-bold text-gray-600">⚙️ 모집 총 좌석 변경 :</span>
                           <div class="flex items-center gap-1">
@@ -665,7 +693,6 @@
                         </div>
                       </div>
                       
-                      <!-- 탑승 신청자 목록 관리 -->
                       <div class="space-y-2">
                         <template x-if="trip.passengers.length === 0">
                           <div class="text-[10px] text-gray-400 py-1 text-center">아직 신청자가 없습니다.</div>
@@ -680,32 +707,30 @@
                             </div>
                             <div class="text-[10px] text-gray-500" x-text="`📱 연락처: ${p.phone} | 📍 픽업: ${p.pickup}`"></div>
                             
-                            <!-- 🔘 [수락] / [거절] 제어 버튼 인터페이스 -->
                             <div class="flex gap-1 pt-0.5">
                               <button @click="rejectPassenger(trip, p)" 
                                       :class="p.status === 'rejected' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 border'"
-                                      class="flex-1 py-1 rounded-lg text-[11px] font-bold transition-all">
+                                      class="flex-1 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer">
                                 거절
                               </button>
                               <button @click="acceptPassenger(trip, p)" 
                                       :class="p.status === 'approved' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'"
-                                      class="flex-1 py-1 rounded-lg text-[11px] font-bold transition-all">
+                                      class="flex-1 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer">
                                 수락
                               </button>
                             </div>
 
-                            <!-- 📱 수락/거절 상태에 따라 인라인으로 노출되는 실시간 다이렉트 메시지 전송 패널 -->
                             <template x-if="lastDriverActionData && lastDriverActionData.passengerName === p.name">
                               <div class="bg-slate-900 text-white p-2.5 rounded-lg space-y-2 mt-1 border border-slate-700">
                                 <div class="flex justify-between items-center">
                                   <span class="text-[10px] font-bold text-yellow-400" x-text="`📢 [${lastDriverActionData.type}] 메시지 발송`"></span>
-                                  <button @click="driverResetAction()" class="text-gray-400 text-[10px] px-1">✕ 닫기</button>
+                                  <button @click="driverResetAction()" class="text-gray-400 text-[10px] px-1 cursor-pointer">✕ 닫기</button>
                                 </div>
                                 <div class="grid grid-cols-2 gap-1.5">
-                                  <button @click="sendDriverSms()" class="bg-blue-600 text-white text-[10px] font-black py-1.5 rounded-md">
+                                  <button @click="sendDriverSms()" class="bg-blue-600 text-white text-[10px] font-black py-1.5 rounded-md cursor-pointer">
                                     💬 문자 전송
                                   </button>
-                                  <button @click="copyDriverKakaoText()" class="bg-yellow-500 text-gray-950 text-[10px] font-black py-1.5 rounded-md">
+                                  <button @click="copyDriverKakaoText()" class="bg-yellow-500 text-gray-950 text-[10px] font-black py-1.5 rounded-md cursor-pointer">
                                     💛 카톡 복사
                                   </button>
                                 </div>
@@ -724,17 +749,15 @@
             </div>
           </template>
 
-          <!-- [🙋‍♀️ 3. 동승자 모드: 피드 목록] -->
           <template x-if="step === 'passenger' && !selectedTrip">
             <div class="space-y-4">
               <h2 class="text-base font-black text-gray-900">🚗 실시간 운행 카풀 피드 목록</h2>
 
-              <!-- 실시간 예약요청 문자 발송 패널 (동승자 -> 운전자) -->
               <template x-if="lastReservedData">
                 <div class="bg-emerald-950 text-white p-4 rounded-2xl border-2 border-emerald-400 space-y-3 shadow-lg">
                   <div class="flex justify-between items-center">
                     <span class="text-xs font-bold text-emerald-300">📱 탑승 신청 알림 전송</span>
-                    <button @click="lastReservedData = null" class="text-gray-400 text-xs">✕ 닫기</button>
+                    <button @click="lastReservedData = null" class="text-gray-400 text-xs cursor-pointer">✕ 닫기</button>
                   </div>
                   <p class="text-[11px] text-gray-200 leading-relaxed">
                     신청이 정상적으로 대기열에 등록되었습니다.<br>
@@ -751,7 +774,6 @@
                 </div>
               </template>
 
-              <!-- 메인 활성 피드 목록 뷰어 -->
               <div class="space-y-2">
                 <template x-if="activeTrips.length === 0">
                   <div class="text-center py-12 bg-gray-50 border border-dashed rounded-2xl border-gray-200 text-gray-400 text-xs">
@@ -770,9 +792,8 @@
                       <span class="font-black text-blue-600 bg-blue-50 px-2 py-1 rounded text-[11px]" x-text="`${trip.departureTime} 출발`"></span>
                     </div>
 
-                    <!-- 경유 노선도 -->
                     <div class="flex flex-wrap items-center gap-1 text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                      <template x-for="(st, idx) in trip.route" :key="st.id">
+                      <template x-for Rama in trip.route" :key="st.id">
                         <div class="flex items-center gap-0.5">
                           <span class="font-bold text-gray-700 bg-white px-1.5 py-0.5 rounded border border-gray-100" x-text="st.name"></span>
                           <span x-if="idx < trip.route.length - 1" class="text-gray-300 font-bold">→</span>
@@ -780,13 +801,12 @@
                       </template>
                     </div>
 
-                    <!-- 내 예약 상태 트래킹 및 실시간 신청취소 브릿지 연동 -->
                     <div class="pt-1 space-y-1">
                       <template x-for="p in trip.passengers.filter(ps => ps.name === currentUser.name)" :key="p.id">
                         <div class="flex justify-between items-center p-2 rounded text-[11px] font-bold"
                              :class="p.status === 'approved' ? 'bg-emerald-50 text-emerald-800' : p.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-800'">
                           <span x-text="p.status === 'pending' ? '⏳ 승인 대기 중' : p.status === 'approved' ? '✅ 매칭 수락됨' : '❌ 매칭 거절됨'"></span>
-                          <button @click="cancelPassengerBooking(trip, p)" class="bg-gray-800 text-white font-normal text-[9px] px-2 py-0.5 rounded">신청취소</button>
+                          <button @click="cancelPassengerBooking(trip, p)" class="bg-gray-800 text-white font-normal text-[9px] px-2 py-0.5 rounded cursor-pointer">신청취소</button>
                         </div>
                       </template>
 
@@ -802,7 +822,6 @@
             </div>
           </template>
 
-          <!-- [🙋‍♀️ 동승자 모드: 세부 픽업 확정 룸] -->
           <template x-if="step === 'passenger' && selectedTrip">
             <div class="space-y-4">
               <button @click="selectedTrip = null;" class="text-gray-400 text-xs bg-gray-100 px-2 py-1 rounded-md cursor-pointer">← 목록 돌아가기</button>
@@ -812,7 +831,6 @@
                 <div class="text-sm font-black text-emerald-950 mt-0.5" x-text="`운전자: ${selectedTrip.driverName}`"></div>
               </div>
 
-              <!-- 동승자 본인 실제 연락처 입력 서식 -->
               <div class="bg-emerald-50/50 p-3 rounded-xl border border-emerald-200 space-y-1">
                 <label class="block text-xs font-black text-emerald-900">📞 동승자(본인) 휴대폰 번호 입력</label>
                 <input type="tel" x-model="inputPassengerPhone" placeholder="010-0000-0000" class="w-full p-2 text-xs border border-emerald-300 rounded-lg bg-white font-bold text-gray-800 focus:outline-none">
@@ -832,7 +850,7 @@
                   <template x-for="stop in selectedTrip.route" :key="stop.id">
                     <label :class="passengerPickup === stop.name ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200'" 
                            class="flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs bg-white hover:bg-gray-50">
-                      <input type="radio" name="p_pickup_v21" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
+                      <input type="radio" name="p_pickup_v22" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
                       <div class="flex-1 min-w-0">
                         <span class="font-extrabold text-gray-800 block truncate" x-text="stop.name"></span>
                         <p class="text-[10px] text-gray-400 truncate" x-text="stop.address"></p>
@@ -852,7 +870,6 @@
       </div>
     </template>
 
-    <!-- 관리자 복합 인증 모달 레이어 -->
     <div x-show="showPasswordModal" class="absolute inset-0 bg-black/60 flex justify-center items-center p-6 z-50" x-transition>
       <div class="bg-white rounded-2xl p-5 w-full max-w-xs space-y-3 shadow-2xl">
         <div class="text-center">
@@ -870,9 +887,8 @@
       </div>
     </div>
 
-    <!-- 하단 바 -->
     <div class="p-2.5 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold shrink-0">
-      창원경화카풀 동적 게이트웨이 알림 아키텍처 v21 © 2026
+      창원경화카풀 브라우저 로컬 저장소 동기화 아키텍처 v22 © 2026
     </div>
   </div>
 
