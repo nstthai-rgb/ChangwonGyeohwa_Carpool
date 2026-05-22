@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>창원경화카풀 시스템 v26</title>
+  <title>창원경화카풀 시스템 v27</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   
@@ -54,16 +54,9 @@
     newMemberName: '',
     newMemberPhone: '',
 
-    masterStops: [
-      { id: 'stop1', name: '중앙시장 (태백사거리 방면)', address: '519808 정류소' },
-      { id: 'stop2', name: '중부시장입구 (경화성당 방면)', address: '5199818 정류소' },
-      { id: 'stop3', name: '경화시장 (염전사거리 방면)', address: '519822 정류소' },
-      { id: 'stop4', name: '경화동 (경화역 방면)', address: '518114 정류소' },
-      { id: 'stop5', name: '경화역 (진해남중 방면)', address: '518116 정류소' },
-      { id: 'stop6', name: '진해남중 (진해세화여고 방면)', address: '518118 정류소' },
-      { id: 'stop7', name: '진해세화여고 (롯데마트 방면)', address: '518120 정류소' },
-      { id: 'stop8', name: '삼정코아 (두산위브 방면)', address: '516406 정류소' }
-    ],
+    // [📍 정류소(경유지) 관리] - 이제 실시간 DB에서 동적으로 받아옵니다.
+    masterStops: [],
+    newStopName: '',
 
     inputDate: '', 
     inputTime: '18:30',
@@ -128,7 +121,31 @@
         }
       });
 
-      // 4. 카풀 목록 실시간 받아오기
+      // 4. 📍 [수정됨] 정류소 목록 실시간 받아오기
+      db.ref('masterStops').on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          this.masterStops = Object.values(data).map(s => ({
+            id: String(s.id),
+            name: String(s.name).trim()
+          }));
+        } else {
+          // 초기 데이터 셋팅
+          this.masterStops = [
+            { id: 'stop1', name: '중앙시장 (태백사거리 방면)' },
+            { id: 'stop2', name: '중부시장입구 (경화성당 방면)' },
+            { id: 'stop3', name: '경화시장 (염전사거리 방면)' },
+            { id: 'stop4', name: '경화동 (경화역 방면)' },
+            { id: 'stop5', name: '경화역 (진해남중 방면)' },
+            { id: 'stop6', name: '진해남중 (진해세화여고 방면)' },
+            { id: 'stop7', name: '진해세화여고 (롯데마트 방면)' },
+            { id: 'stop8', name: '삼정코아 (두산위브 방면)' }
+          ];
+          this.syncMasterStopsToFirebase();
+        }
+      });
+
+      // 5. 카풀 목록 실시간 받아오기
       db.ref('trips').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -226,6 +243,18 @@
       db.ref('allowedMembers').set(uploadObj);
     },
 
+    // 📍 [신규] 정류소 목록 자동 저장
+    syncMasterStopsToFirebase() {
+      const uploadObj = {};
+      this.masterStops.forEach(s => {
+        uploadObj[s.id] = {
+          id: String(s.id),
+          name: String(s.name).trim()
+        };
+      });
+      db.ref('masterStops').set(uploadObj);
+    },
+
     // 카풀 목록 자동 저장
     syncTripsToFirebase() {
       const dataToSave = {};
@@ -298,7 +327,7 @@
         
         alert('👑 관리자 전용 제어 화면으로 진입했습니다.');
       } else {
-        alert('❌ 관리자 아이디 또는 비밀번호가 일치하지 않습니다.');
+        alert('❌ 관리자 아이디 혹은 비밀번호가 일치하지 않습니다.');
       }
     },
 
@@ -315,7 +344,7 @@
       this.step = 'passenger';
     },
 
-    // ⚠️ [수정된 곳] 관리자 계정 정보를 시스템에 저장하여 영구 변경 처리
+    // 관리자 계정 정보 실시간 저장 변경
     updateAdminAccount() {
       if (!this.newAdminId.trim() || !this.newAdminPassword.trim()) {
         return alert('변경할 아이디와 비밀번호를 채워주세요.');
@@ -356,6 +385,38 @@
       this.allowedMembers = this.allowedMembers.filter(m => m.id !== memberId);
       this.syncMembersToFirebase();
       if (this.currentUser && this.currentUser.name === name) this.userLogout();
+    },
+
+    // 📍 [신규] 관리자 정류소 직접 추가 함수
+    addMasterStop() {
+      if (!this.newStopName.trim()) {
+        return alert('추가할 정류소(경유지) 이름을 입력해 주세요.');
+      }
+      const stopName = this.newStopName.trim();
+
+      if (this.masterStops.some(s => s.name === stopName)) {
+        return alert('⚠️ 이미 등록되어 있는 정류소 이름입니다.');
+      }
+
+      this.masterStops.push({
+        id: 'stop_' + Date.now(),
+        name: stopName
+      });
+
+      this.syncMasterStopsToFirebase();
+      alert(`📍 [${stopName}] 정류소가 추가되었습니다. 운전자 화면에 즉시 연동됩니다.`);
+      this.newStopName = '';
+    },
+
+    // 📍 [신규] 관리자 정류소 삭제 함수
+    removeMasterStop(stopId, name) {
+      if (!confirm(`🚨 [${name}] 정류소를 시스템에서 완전히 삭제하시겠습니까?\n(기존 선택되어 있던 운전자 선택 목록에서도 제외됩니다.)`)) return;
+      
+      this.masterStops = this.masterStops.filter(s => s.id !== stopId);
+      this.selectedStopIds = this.selectedStopIds.filter(id => id !== stopId);
+      this.rebuildDriverRoute();
+      
+      this.syncMasterStopsToFirebase();
     },
 
     registerTrip() {
@@ -549,7 +610,7 @@
     <!-- 상단 앱 브랜딩 바 -->
     <div class="bg-gray-900 text-white px-4 py-3 flex justify-between items-center text-xs">
       <div class="flex items-center gap-2 w-full">
-        <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v26 🌐</span>
+        <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v27 🌐</span>
         <div class="flex items-center gap-2 ml-auto" x-show="isUserLoggedIn">
           <span class="text-gray-300 font-bold" x-text="`👤 ${currentUser?.name}님`"></span>
           <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px] cursor-pointer">로그아웃</button>
@@ -592,7 +653,7 @@
     <template x-if="isUserLoggedIn">
       <div class="flex-1 flex flex-col overflow-hidden">
         
-        <!-- 대메뉴 탭 (요청에 따라 이름 단순화) -->
+        <!-- 대메뉴 탭 -->
         <div class="flex border-b border-gray-100 bg-gray-50 p-2 gap-1 shrink-0">
           <button x-show="isAdminAuthenticated" @click="step = 'admin';" 
                   :class="step === 'admin' ? 'bg-red-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
@@ -621,12 +682,12 @@
               <div class="flex justify-between items-center bg-red-50 p-3 rounded-xl border border-red-100">
                 <div>
                   <h2 class="text-xs font-black text-red-900">👑 최고 관리자 제어실</h2>
-                  <p class="text-[10px] text-red-600 mt-0.5">시스템 설정 및 회원 제어 중</p>
+                  <p class="text-[10px] text-red-600 mt-0.5">시스템 설정 및 노선/회원 제어 중</p>
                 </div>
                 <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded cursor-pointer">관리자 로그아웃</button>
               </div>
 
-              <!-- 📢 [신규 추가] 공지사항 실시간 수정 패널 -->
+              <!-- 공지사항 실시간 수정 패널 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-xs">
                 <span class="text-xs font-black text-gray-800 block">📢 공지사항 내용 변경</span>
                 <textarea x-model="notice" rows="2" class="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold bg-gray-50 focus:bg-white focus:outline-none" placeholder="여기에 작성하면 상단 배너에 즉시 반영됩니다."></textarea>
@@ -635,25 +696,28 @@
                 </button>
               </div>
 
-              <!-- ⚙️ [기능 강화] 관리자 계정 정보 수정 패널 -->
+              <!-- 📍 [신규 추가 항목] 정류소(경유지 주소) 목록 추가/삭제 관리자 컨트롤러 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
-                <span class="text-xs font-black text-gray-800 block">⚙️ 관리자 로그인 계정 변경 (실시간 저장)</span>
-                <div class="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <label class="text-[10px] font-bold text-gray-400 block mb-0.5">새 관리자 ID</label>
-                    <input type="text" x-model="newAdminId" placeholder="새 아이디" class="w-full p-2 border rounded-lg bg-gray-50 font-bold">
-                  </div>
-                  <div>
-                    <label class="text-[10px] font-bold text-gray-400 block mb-0.5">새 비밀번호</label>
-                    <input type="text" x-model="newAdminPassword" placeholder="새 비밀번호" class="w-full p-2 border rounded-lg bg-gray-50 text-center font-bold">
-                  </div>
+                <span class="text-xs font-black text-gray-800 block">📍 정류소(타는 곳) 목록 관리</span>
+                <div class="flex gap-2 text-xs">
+                  <input type="text" x-model="newStopName" placeholder="예: 경화역 정류소 앞" class="flex-1 p-2 border rounded-lg bg-gray-50 font-bold focus:bg-white focus:outline-none">
+                  <button @click="addMasterStop()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg font-bold cursor-pointer">➕ 정류소 추가</button>
                 </div>
-                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">
-                  💾 계정 정보 시스템에 저장
-                </button>
+
+                <div class="border-t border-gray-100 pt-2 space-y-1 max-h-40 overflow-y-auto">
+                  <template x-if="masterStops.length === 0">
+                    <div class="text-center py-4 text-[11px] text-gray-400">등록된 정류소가 없습니다.</div>
+                  </template>
+                  <template x-for="s in masterStops" :key="s.id">
+                    <div class="flex justify-between items-center text-xs p-1.5 bg-gray-50 rounded">
+                      <span class="font-bold text-gray-700" x-text="`• ${s.name}`"></span>
+                      <button @click="removeMasterStop(s.id, s.name)" class="text-[10px] text-red-500 font-bold px-2 py-0.5 rounded cursor-pointer">삭제</button>
+                    </div>
+                  </template>
+                </div>
               </div>
 
-              <!-- 이용 가능한 회원 명단 관리 -->
+              <!-- 회원 명단 관리 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
                 <span class="text-xs font-black text-gray-800 block">👥 이용 가능한 회원 명단 추가</span>
                 <div class="grid grid-cols-2 gap-2 text-xs">
@@ -675,6 +739,24 @@
                     </div>
                   </template>
                 </div>
+              </div>
+
+              <!-- 관리자 계정 정보 수정 패널 -->
+              <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
+                <span class="text-xs font-black text-gray-800 block">⚙️ 관리자 로그인 계정 변경</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label class="text-[10px] font-bold text-gray-400 block mb-0.5">새 관리자 ID</label>
+                    <input type="text" x-model="newAdminId" placeholder="새 아이디" class="w-full p-2 border rounded-lg bg-gray-50 font-bold">
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-gray-400 block mb-0.5">새 비밀번호</label>
+                    <input type="text" x-model="newAdminPassword" placeholder="새 비밀번호" class="w-full p-2 border rounded-lg bg-gray-50 text-center font-bold">
+                  </div>
+                </div>
+                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">
+                  💾 계정 정보 시스템에 저장
+                </button>
               </div>
 
               <!-- 전역 배차 관리 -->
@@ -739,6 +821,9 @@
               <div class="space-y-1.5">
                 <label class="text-xs font-bold text-gray-700 block">☑️ 경유할 정류소 선택 (중복 가능)</label>
                 <div class="grid grid-cols-1 gap-1 max-h-32 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-100">
+                  <template x-if="masterStops.length === 0">
+                    <div class="text-center py-4 text-[11px] text-gray-400">관리자가 추가한 정류소가 없습니다.</div>
+                  </template>
                   <template x-for="stop in masterStops" :key="stop.id">
                     <label class="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer text-xs active:bg-gray-100 select-none">
                       <input type="checkbox" :value="stop.id" x-model="selectedStopIds" @change="rebuildDriverRoute()" class="w-4 h-4 text-blue-600 rounded">
@@ -895,7 +980,7 @@
                       <div class="flex justify-between items-center mt-1">
                         <span class="text-[11px] text-gray-500 font-bold" x-text="`남은좌석: ${trip.remainingSeats}석 / 전체: ${trip.totalSeats}석`"></span>
                         
-                        <!-- ⚠️ [요청 구현] 만석 시 버튼 빨간색 '만석 ❌' 처리 -->
+                        <!-- 만석 시 빨간색 마감 처리 -->
                         <template x-if="trip.remainingSeats <= 0">
                           <span class="bg-red-600 text-white font-black px-4 py-1.5 rounded-lg text-xs shadow-sm">
                             만석 ❌
@@ -940,7 +1025,7 @@
                   <template x-for="stop in selectedTrip.route" :key="stop.id">
                     <label :class="passengerPickup === stop.name ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200'" 
                            class="flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs bg-white">
-                      <input type="radio" name="p_pickup_v26" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
+                      <input type="radio" name="p_pickup_v27" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
                       <span class="font-extrabold text-gray-800" x-text="stop.name"></span>
                     </label>
                   </template>
@@ -974,7 +1059,7 @@
 
     <!-- 하단 바 -->
     <div class="p-2.5 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold shrink-0">
-      창원경화카풀 안정화 모델 v26 © 2026
+      창원경화카풀 안정화 모델 v27 © 2026
     </div>
   </div>
 
