@@ -720,3 +720,277 @@
                   <input type="text" maxlength="4" x-model="newMemberPhone" placeholder="뒷자리 4자리" class="p-2 border rounded-lg bg-gray-50 text-center font-bold">
                 </div>
                 <button @click="addAllowedMember()" class="w-full bg-gray-900 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">➕ 신규 명단 추가 등록</button>
+
+                <div class="border-t border-gray-100 pt-2 space-y-1 max-h-36 overflow-y-auto">
+                  <template x-for="m in allowedMembers" :key="m.id">
+                    <div class="flex justify-between items-center text-xs p-1.5 bg-gray-50 rounded">
+                      <span class="font-bold text-gray-700" x-text="`• ${m.name} (${m.phoneTail})`"></span>
+                      <button @click="removeMember(m.id, m.name)" class="text-[10px] text-red-500 font-bold px-2 py-0.5 rounded cursor-pointer">삭제</button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
+                <span class="text-xs font-black text-gray-800 block">⚙️ 관리자 로그인 계정 변경</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <input type="text" x-model="newAdminId" placeholder="새 아이디" class="p-2 border rounded-lg bg-gray-50 font-bold">
+                  <input type="text" x-model="newAdminPassword" placeholder="새 비밀번호" class="p-2 border rounded-lg bg-gray-50 text-center font-bold">
+                </div>
+                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">💾 계정 정보 시스템에 저장</button>
+              </div>
+
+              <div class="space-y-2">
+                <label class="text-xs font-black text-gray-800 block">📋 등록된 카풀 목록 강제 제어</label>
+                <div class="space-y-2">
+                  <template x-for="trip in trips" :key="trip.id">
+                    <div class="p-3 bg-white border border-gray-200 rounded-xl space-y-2 text-xs">
+                      <div class="flex justify-between items-center">
+                        <span class="font-extrabold text-gray-900" x-text="`🚗 운전자: ${trip.driverName} (${trip.date})`"></span>
+                        <button @click="cancelDriverTrip(trip, true)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">전체 취소</button>
+                      </div>
+                      <div class="space-y-1 pt-1 border-t border-dashed border-gray-100">
+                        <template x-for="p in trip.passengers || []" :key="p.id">
+                          <div class="flex justify-between items-center bg-red-50/50 p-1 rounded">
+                            <span class="text-gray-700 text-[11px]" x-text="`• ${p.name} [${p.status}]`"></span>
+                            <button @click="cancelPassengerBooking(trip, p, true)" class="text-[10px] text-red-600 font-bold cursor-pointer">예약취소</button>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+            </div>
+          </template>
+
+          <template x-if="step === 'driver'">
+            <div class="space-y-4">
+              <div>
+                <h2 class="text-base font-black text-gray-900">👨‍✈️ 운전자 카풀 등록 및 관리</h2>
+                <p class="text-xs text-blue-600 mt-0.5 font-bold" x-text="`등록 이름: ${currentUser?.name}`"></p>
+              </div>
+
+              <div class="bg-gray-50 p-3.5 rounded-xl border border-gray-100 space-y-2.5 text-xs">
+                <div class="bg-blue-50 p-2.5 rounded-lg border border-blue-100">
+                  <label class="block font-black text-blue-900 mb-1">📞 운전자 연락처</label>
+                  <input type="tel" x-model="inputDriverPhone" class="w-full p-2 border border-blue-200 rounded-lg bg-white font-bold text-gray-800 focus:outline-none">
+                </div>
+                <div>
+                  <label class="block font-bold text-gray-500 mb-1">📅 운행 날짜 선택</label>
+                  <input type="date" x-model="inputDate" class="w-full p-2 border border-gray-200 rounded-lg bg-white font-bold">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block font-bold text-gray-500 mb-1">⏰ 시간</label>
+                    <input type="time" x-model="inputTime" class="w-full p-2 border border-gray-200 rounded-lg bg-white">
+                  </div>
+                  <div>
+                    <label class="block font-bold text-gray-500 mb-1">👥 모집 좌석</label>
+                    <select x-model="inputSeats" class="w-full p-2 border border-gray-200 rounded-lg bg-white font-bold">
+                      <option value="1">1석</option><option value="2">2석</option><option value="3">3석</option><option value="4">4석</option><option value="5">5석</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-gray-700 block">☑️ 경유할 정류소 선택 (중복 가능)</label>
+                <div class="grid grid-cols-1 gap-1 max-h-32 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-100">
+                  <template x-for="stop in masterStops" :key="stop.id">
+                    <label class="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer text-xs select-none">
+                      <input type="checkbox" :value="stop.id" x-model="selectedStopIds" @change="rebuildDriverRoute()" class="w-4 h-4 text-blue-600 rounded">
+                      <span class="font-bold text-gray-700 truncate" x-text="stop.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-gray-700 block">🔄 경유 순서 설정 <span class="text-[10px] text-blue-600 font-extrabold ml-1">(☰ 밀어서 조절)</span></label>
+                <div class="space-y-1 max-h-36 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-200 border-dashed">
+                  <template x-if="driverOrderedStops.length === 0">
+                    <div class="text-center py-4 text-[11px] text-gray-400">정류소를 선택하면 배차 노선이 완성됩니다.</div>
+                  </template>
+                  <template x-for="(stop, index) in driverOrderedStops" :key="stop.id">
+                    <div class="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded-lg text-xs select-none touch-none"
+                         draggable="true"
+                         @dragstart="handleDragStart(index, $event)" @dragover="handleDragOver(index, $event)" @dragend="handleDragEnd()"
+                         @touchstart="handleTouchStart(index, $event)" @touchmove="handleTouchMove(index, $event)" @touchend="handleTouchEnd()">
+                      <div class="text-gray-400 font-bold px-1 text-sm cursor-row-resize">☰</div>
+                      <span class="font-black text-blue-600" x-text="`${index + 1}.`"></span>
+                      <span class="font-bold text-gray-800 truncate" x-text="stop.name"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <button @click="registerTrip()" class="w-full bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-md cursor-pointer">🚗 카풀 운행 일정 등록</button>
+
+              <hr class="border-gray-100">
+
+              <div class="space-y-2">
+                <h3 class="text-xs font-black text-gray-800">📥 대기중인 동승 신청 현황</h3>
+                <div class="space-y-2.5 max-h-60 overflow-y-auto">
+                  <template x-if="myDrivenTrips.length === 0">
+                    <div class="text-center py-6 text-[11px] text-gray-400 bg-gray-50 rounded-xl border">등록된 내 카풀 일정이 없습니다.</div>
+                  </template>
+                  <template x-for="trip in myDrivenTrips" :key="trip.id">
+                    <div class="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2 text-xs">
+                      <div class="flex justify-between items-center pb-2 border-b border-dashed border-blue-200">
+                        <span class="font-black text-blue-900" x-text="`📅 ${trip.date} (${trip.departureTime})`"></span>
+                        <button @click="cancelDriverTrip(trip)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">일정 취소</button>
+                      </div>
+                      <div class="space-y-2">
+                        <template x-for="p in trip.passengers || []" :key="p.id">
+                          <div class="bg-white p-2 rounded-xl border border-gray-200 flex flex-col gap-1 shadow-xs">
+                            <div class="flex justify-between items-center">
+                              <span class="font-black text-gray-800" x-text="`🙋‍♀️ ${p.name} (${p.count}명)`"></span>
+                              <span class="text-[10px] font-bold px-1.5 py-0.2 rounded" :class="p.status === 'pending' ? 'bg-amber-100 text-amber-800' : p.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'" x-text="p.status === 'pending' ? '대기 중' : p.status === 'approved' ? '수락됨' : '거절됨'"></span>
+                            </div>
+                            <div class="text-[10px] text-gray-500" x-text="`📍 탑승지: ${p.pickup}`"></div>
+                            <div class="flex gap-1 pt-1">
+                              <button @click="rejectPassenger(trip, p)" class="flex-1 bg-gray-100 text-gray-700 border py-1 rounded-lg text-[10px] font-bold cursor-pointer">거절</button>
+                              <button @click="acceptPassenger(trip, p)" class="flex-1 bg-blue-600 text-white py-1 rounded-lg text-[10px] font-bold cursor-pointer">수락</button>
+                            </div>
+
+                            <template x-if="lastDriverActionData && lastDriverActionData.passengerName === p.name">
+                              <div class="bg-slate-900 text-white p-2 rounded-md space-y-1.5 mt-1">
+                                <div class="grid grid-cols-2 gap-1.5 text-center">
+                                  <button @click="sendDriverSms()" class="bg-blue-600 text-white text-[10px] font-black py-1 rounded cursor-pointer">💬 문자 통보</button>
+                                  <button @click="copyDriverKakaoText()" class="bg-yellow-500 text-gray-950 text-[10px] font-black py-1 rounded cursor-pointer">💛 카톡 복사</button>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+            </div>
+          </template>
+
+          <template x-if="step === 'passenger' && !selectedTrip">
+            <div class="space-y-4">
+              <h2 class="text-base font-black text-gray-900">🚗 등록된 카풀 목록</h2>
+
+              <template x-if="lastReservedData">
+                <div class="bg-emerald-950 text-white p-4 rounded-2xl border-2 border-emerald-400 space-y-3 shadow-lg">
+                  <div class="flex justify-between items-center text-xs text-emerald-300 font-bold">
+                    <span>📱 탑승 요청 문자/카톡 전송</span>
+                    <button @click="lastReservedData = null" class="text-gray-400">✕</button>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button @click="sendSmsNotification()" class="bg-emerald-600 text-white text-xs font-black py-2 rounded-xl cursor-pointer">💬 문자 전송</button>
+                    <button @click="copyKakaoText()" class="bg-yellow-500 text-gray-950 text-xs font-black py-2 rounded-xl cursor-pointer">💛 카톡 복사</button>
+                  </div>
+                </div>
+              </template>
+
+              <div class="space-y-2">
+                <template x-if="activeTrips.length === 0">
+                  <div class="text-center py-12 bg-gray-50 border border-dashed rounded-2xl text-gray-400 text-xs">등록된 카풀 일정이 없습니다.</div>
+                </template>
+                <template x-for="trip in activeTrips" :key="trip.id">
+                  <div class="p-4 bg-white border border-gray-200 rounded-xl space-y-2.5 shadow-xs">
+                    <div class="flex justify-between items-start text-xs">
+                      <div>
+                        <span class="bg-emerald-50 text-emerald-700 font-black px-2 py-0.5 rounded text-[10px]" x-text="`${trip.date} (${trip.dayOfWeek})`"></span>
+                        <h3 class="font-extrabold text-gray-800 mt-1" x-text="`운전자: ${trip.driverName}`"></h3>
+                      </div>
+                      <span class="font-black text-blue-600 bg-blue-50 px-2 py-1 rounded text-[11px]" x-text="`${trip.departureTime} 출발`"></span>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-1 text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                      <template x-for="(st, idx) in trip.route" :key="st.id">
+                        <div class="flex items-center gap-0.5">
+                          <span class="font-bold text-gray-700 bg-white px-1.5 py-0.5 rounded border border-gray-100" x-text="st.name"></span>
+                          <span x-show="idx < trip.route.length - 1" class="text-gray-300 font-bold">→</span>
+                        </div>
+                      </template>
+                    </div>
+
+                    <div class="pt-1 space-y-1">
+                      <template x-for="p in (trip.passengers || []).filter(ps => ps.name === currentUser.name)" :key="p.id">
+                        <div class="flex justify-between items-center p-2 rounded text-[11px] font-bold" :class="p.status === 'approved' ? 'bg-emerald-50 text-emerald-800' : p.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-800'">
+                          <span x-text="p.status === 'pending' ? '⏳ 신청 완료: 대기 중' : p.status === 'approved' ? '✅ 매칭 성공! 수락됨🎉' : '❌ 매칭 거절됨'"></span>
+                          <button @click="cancelPassengerBooking(trip, p)" class="bg-gray-800 text-white font-normal text-[9px] px-2 py-0.5 rounded cursor-pointer">취소</button>
+                        </div>
+                      </template>
+
+                      <div class="flex justify-between items-center mt-1">
+                        <span class="text-[11px] text-gray-500 font-bold" x-text="`남은좌석: ${trip.remainingSeats}석 / 전체: ${trip.totalSeats}석`"></span>
+                        <template x-if="trip.remainingSeats <= 0">
+                          <span class="bg-red-600 text-white font-black px-4 py-1.5 rounded-lg text-xs shadow-sm">만석 ❌</span>
+                        </template>
+                        <template x-if="trip.remainingSeats > 0">
+                          <button @click="selectTrip(trip)" class="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer">탑승 신청</button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="step === 'passenger' && selectedTrip">
+            <div class="space-y-4">
+              <button @click="selectedTrip = null;" class="text-gray-400 text-xs bg-gray-100 px-2 py-1 rounded-md cursor-pointer">← 목록으로</button>
+              <div class="p-3 bg-emerald-50 rounded-xl text-xs font-bold text-emerald-900" x-text="`${selectedTrip.date} [${selectedTrip.departureTime}] | 운전자: ${selectedTrip.driverName}`"></div>
+
+              <div class="bg-emerald-50/50 p-3 rounded-xl border border-emerald-200 space-y-1">
+                <label class="block text-xs font-black text-emerald-900">📞 연락처 입력</label>
+                <input type="tel" x-model="inputPassengerPhone" class="w-full p-2 text-xs border border-emerald-300 rounded-lg bg-white font-bold text-gray-800 focus:outline-none">
+              </div>
+              <div class="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center text-xs">
+                <label class="font-bold text-gray-700">👥 신청 인원</label>
+                <select x-model="passengerCount" class="bg-white border p-1 rounded-lg font-bold">
+                  <option value="1">1명</option><option value="2">2명</option><option value="3">3명</option>
+                </select>
+              </div>
+
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-gray-700 block">👋 타는 곳 선택</label>
+                <div class="space-y-1 max-h-48 overflow-y-auto">
+                  <template x-for="stop in selectedTrip.route" :key="stop.id">
+                    <label :class="passengerPickup === stop.name ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200'" class="flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs bg-white">
+                      <input type="radio" name="p_pickup_v29" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
+                      <span class="font-extrabold text-gray-800" x-text="stop.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <button @click="confirmReservation(); selectedTrip = null;" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl text-xs shadow-md cursor-pointer">⚡ 최종 탑승 신청 완료</button>
+            </div>
+          </template>
+
+        </div>
+      </div>
+    </template>
+
+    <div x-show="showPasswordModal" class="absolute inset-0 bg-black/60 flex justify-center items-center p-6 z-50" x-transition>
+      <div class="bg-white rounded-2xl p-5 w-full max-w-xs space-y-3 shadow-2xl">
+        <h3 class="text-xs font-black text-gray-900 text-center">🔒 관리자 로그인 인증</h3>
+        <div class="space-y-2">
+          <input type="text" x-model="adminIdInput" placeholder="관리자 ID" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center bg-gray-50 font-bold focus:outline-none">
+          <input type="password" x-model="adminPasswordInput" @keydown.enter="tryAdminAccess()" placeholder="비밀번호" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center bg-gray-50 font-bold focus:outline-none">
+        </div>
+        <div class="flex gap-2">
+          <button @click="showPasswordModal = false;" class="flex-1 bg-gray-200 text-gray-600 font-bold py-1.5 rounded-lg text-xs cursor-pointer">취소</button>
+          <button @click="tryAdminAccess()" class="flex-1 bg-red-600 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">로그인</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="p-2.5 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold shrink-0">
+      창원경화카풀 세션 제어 모델 v29 © 2026
+    </div>
+  </div>
+
+</body>
+</html>
