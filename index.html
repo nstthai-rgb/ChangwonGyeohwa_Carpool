@@ -3,19 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>창원경화카풀 실시간 동기화 시스템 v24</title>
+  <title>창원경화카풀 실시간 동기화 시스템 v25</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   
-  <!-- 🌐 Firebase 핵심 SDK 및 Realtime Database 라이브러리 탑재 (v10 호환 모드) -->
+  <!-- 🌐 Firebase 핵심 SDK 및 Realtime Database 라이브러리 탑재 -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
   <script>
     // 🛠️ 본인의 Firebase 프로젝트 정보로 이 부분을 반드시 수정해 주세요!
-    const firebaseConfig = {
-      databaseURL: "https://your-project-id-default-rtdb.firebaseio.com", // 여기에 본인 DB URL 입력
-      projectId: "your-project-id" // 여기에 본인 프로젝트 ID 입력
-    };
+   const firebaseConfig = {
+  apiKey: "AIzaSyAr6TlLN5_SPZwfnGgyxQkR3zQrtPIbOKg",
+  authDomain: "changwongyeonghwa-carpool.firebaseapp.com",
+  databaseURL: "https://changwongyeonghwa-carpool-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "changwongyeonghwa-carpool",
+  storageBucket: "changwongyeonghwa-carpool.firebasestorage.app",
+  messagingSenderId: "595964487926",
+  appId: "1:595964487926:web:fff99d69b0b05bb04ee4d7",
+  measurementId: "G-K6XS5LF6XV"
+};
     // Firebase 초기화
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
@@ -68,7 +74,6 @@
     driverOrderedStops: [],
     inputPassengerPhone: '010-',
     
-    // 드래그앤드롭 및 모바일 터치 제어 상태 변수
     draggedIndex: null,
     touchStartY: 0,
     currentTouchIndex: null,
@@ -90,22 +95,22 @@
       const today = new Date();
       this.inputDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-      // 1. 회원 명단 실시간 양방향 구독 (객체 구조 분해하여 무조건 순수 배열 처리)
+      // 1. 회원 명단 실시간 양방향 구독 (안전한 객체 백업 및 평탄화 배열 변환)
       db.ref('allowedMembers').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
-          this.allowedMembers = Object.keys(data).map(key => {
-            return typeof data[key] === 'object' ? data[key] : data;
-          });
-          // 만약 이중 객체 구조로 래핑되어 깨지는 현상이 있다면 1차원 평탄화
-          if(this.allowedMembers.length > 0 && !this.allowedMembers[0].id) {
-            this.allowedMembers = Object.values(data);
-          }
+          // 객체로 들어오든 배열로 들어오든 순수 자바스크립트 배열로 강제 변환
+          this.allowedMembers = Object.values(data).map(m => ({
+            id: String(m.id),
+            name: String(m.name).trim(),
+            phoneTail: String(m.phoneTail).trim()
+          }));
         } else {
+          // 데이터가 완전 비어있을 때의 초기 세팅
           this.allowedMembers = [
-            { id: 'm_default1', name: '홍길동', phoneTail: '1234' },
-            { id: 'm_default2', name: '이순신', phoneTail: '5678' },
-            { id: 'm_default3', name: '김경화', phoneTail: '0000' }
+            { id: 'm_1', name: '홍길동', phoneTail: '1234' },
+            { id: 'm_2', name: '이순신', phoneTail: '5678' },
+            { id: 'm_3', name: '김경화', phoneTail: '0000' }
           ];
           this.syncMembersToFirebase();
         }
@@ -129,25 +134,18 @@
       });
     },
 
-    // 경유지 체크박스 토글 함수 (기존 버그 완전 해결 수동 제어)
-    toggleStop(stopId) {
-      if (this.selectedStopIds.includes(stopId)) {
-        this.selectedStopIds = this.selectedStopIds.filter(id => id !== stopId);
-      } else {
-        this.selectedStopIds.push(stopId);
-      }
-      this.rebuildDriverRoute();
-    },
-
-    // 선택된 ID 목록을 기준으로 노선 리스트 재구성
+    // 경유지 체크박스 변경 시 즉각 호출되는 노선 빌더 함수
     rebuildDriverRoute() {
+      // 마스터 정류소 중 선택된 ID에 포함되는 것만 필터링
       let currentStops = this.masterStops.filter(stop => this.selectedStopIds.includes(stop.id));
       let newOrdered = [];
       
+      // 기존에 순서가 맞춰져 있던 정류소 정보 유지
       this.driverOrderedStops.forEach(os => {
         if (currentStops.some(cs => cs.id === os.id)) newOrdered.push(os);
       });
       
+      // 새로 체크되어 추가된 정류소를 뒤에 순차적으로 결합
       currentStops.forEach(cs => {
         if (!newOrdered.some(no => no.id === cs.id)) newOrdered.push(cs);
       });
@@ -184,14 +182,13 @@
       const currentY = event.touches[0].clientY;
       const diffY = currentY - this.touchStartY;
       
-      // 항목의 평균 높이(약 40px)만큼 위아래로 움직였는지 감지
       if (Math.abs(diffY) > 35) {
         const targetIndex = diffY > 0 ? index + 1 : index - 1;
         
         if (targetIndex >= 0 && targetIndex < this.driverOrderedStops.length) {
           this.swapRouteItems(index, targetIndex);
           this.currentTouchIndex = targetIndex;
-          this.touchStartY = currentY; // 기준점 갱신
+          this.touchStartY = currentY; 
         }
       }
     },
@@ -200,7 +197,6 @@
       this.currentTouchIndex = null;
     },
 
-    // 배열 원소 스왑 공통 함수
     swapRouteItems(fromIndex, toIndex) {
       let targetArray = [...this.driverOrderedStops];
       const movedItem = targetArray.splice(fromIndex, 1)[0];
@@ -208,8 +204,17 @@
       this.driverOrderedStops = targetArray;
     },
 
+    // ⚠️ [중요 수정한 곳] 명단 유실 방지를 위해 Key-Value 형태의 완전한 오브젝트 구조로 데이터 전송
     syncMembersToFirebase() {
-      db.ref('allowedMembers').set(this.allowedMembers);
+      const uploadObj = {};
+      this.allowedMembers.forEach(m => {
+        uploadObj[m.id] = {
+          id: String(m.id),
+          name: String(m.name).trim(),
+          phoneTail: String(m.phoneTail).trim()
+        };
+      });
+      db.ref('allowedMembers').set(uploadObj);
     },
 
     syncTripsToFirebase() {
@@ -236,18 +241,18 @@
       return this.trips.filter(trip => trip.driverName === this.currentUser.name);
     },
 
+    // ⚠️ [중요 수정한 곳] 빈칸, 문자열 타입 일치화 필터링 강화로 무조건 로그인 성공 유도
     tryUserLogin() {
       if (!this.loginName.trim() || !this.loginPhoneTail.trim()) {
         return alert('이름과 전화번호 뒷자리를 입력해 주세요.');
       }
       
-      const targetName = this.loginName.trim();
-      const targetTail = this.loginPhoneTail.trim();
+      const targetName = String(this.loginName).replace(/\s/g, '');
+      const targetTail = String(this.loginPhoneTail).replace(/\s/g, '');
 
-      // 공백 제거 및 문자열 강제 변환 후 매칭 조건 고도화
       const member = this.allowedMembers.find(m => 
-        String(m.name).trim() === targetName && 
-        String(m.phoneTail).trim() === targetTail
+        String(m.name).replace(/\s/g, '') === targetName && 
+        String(m.phoneTail).replace(/\s/g, '') === targetTail
       );
       
       if (member) {
@@ -524,7 +529,7 @@
     <!-- 상단 앱 브랜딩 바 -->
     <div class="bg-gray-900 text-white px-4 py-3 flex justify-between items-center text-xs">
       <div class="flex items-center gap-2 w-full">
-        <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v24 🌐</span>
+        <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v25 🌐</span>
         <div class="flex items-center gap-2 ml-auto" x-show="isUserLoggedIn">
           <span class="text-gray-300 font-bold" x-text="`👤 ${currentUser?.name}님`"></span>
           <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px] cursor-pointer">로그아웃</button>
@@ -685,13 +690,13 @@
                 </div>
               </div>
 
-              <!-- 정류소 설정 패널 -->
+              <!-- 정류소 설정 패널 (⚠️ 양방향 바인딩 x-model과 이벤트 트리거 결합으로 버그 차단) -->
               <div class="space-y-1.5">
                 <label class="text-xs font-bold text-gray-700 block">☑️ 경유할 픽업 정류소 선택 (중복 가능)</label>
                 <div class="grid grid-cols-1 gap-1 max-h-32 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-100">
                   <template x-for="stop in masterStops" :key="stop.id">
-                    <label @click.prevent="toggleStop(stop.id)" class="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer text-xs active:bg-gray-100 select-none">
-                      <input type="checkbox" :checked="selectedStopIds.includes(stop.id)" class="w-4 h-4 text-blue-600 rounded pointer-events-none">
+                    <label class="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer text-xs active:bg-gray-100 select-none">
+                      <input type="checkbox" :value="stop.id" x-model="selectedStopIds" @change="rebuildDriverRoute()" class="w-4 h-4 text-blue-600 rounded">
                       <span class="font-bold text-gray-700 truncate" x-text="stop.name"></span>
                     </label>
                   </template>
@@ -879,7 +884,7 @@
                   <template x-for="stop in selectedTrip.route" :key="stop.id">
                     <label :class="passengerPickup === stop.name ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200'" 
                            class="flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs bg-white">
-                      <input type="radio" name="p_pickup_v24" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
+                      <input type="radio" name="p_pickup_v25" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
                       <span class="font-extrabold text-gray-800" x-text="stop.name"></span>
                     </label>
                   </template>
@@ -913,7 +918,7 @@
 
     <!-- 하단 고정 바 -->
     <div class="p-2.5 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold shrink-0">
-      창원경화카풀 멀티터치 실시간 데이터 가동 모델 v24 © 2026
+      창원경화카풀 동기화 픽스 안정화 모델 v25 © 2026
     </div>
   </div>
 
