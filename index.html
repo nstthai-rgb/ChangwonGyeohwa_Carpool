@@ -522,8 +522,8 @@
       // 운행 타입 판별
       let typeText = '';
       if (this.driverDriveType.includes('go') && this.driverDriveType.includes('back')) typeText = '왕복';
-      else if (this.driverDriveType.includes('go')) typeText = '갈때만';
-      else if (this.driverDriveType.includes('back')) typeText = '올때만';
+      else if (this.driverDriveType.includes('go')) typeText = '가는 길';
+      else if (this.driverDriveType.includes('back')) typeText = '오는 길';
 
       const newTrip = {
         id: 'trip_' + Date.now(),
@@ -536,7 +536,7 @@
         totalSeats: parseInt(this.inputSeats),
         remainingSeats: parseInt(this.inputSeats),
         route: JSON.parse(JSON.stringify(this.driverOrderedStops)),
-        driveType: typeText, // '왕복', '갈때만', '올때만'
+        driveType: typeText, // '왕복', '가는 길', '오는 길'
         passengers: []
       };
       
@@ -557,7 +557,7 @@
     selectTrip(trip) {
       this.selectedTrip = trip; this.passengerPickup = ''; this.passengerCount = 1; this.inputPassengerPhone = '010-';
       // 기정의된 운전자 조건에 맞게 동승 기본 신청 설정 변경
-      this.passengerTypeSelection = trip.driveType === '올때만' ? 'back' : 'go';
+      this.passengerTypeSelection = trip.driveType === '오는 길' ? 'back' : 'go';
     },
 
     // 🙋‍♀️ 동승 신청 승인 예약 빌더
@@ -571,8 +571,8 @@
       if(this.selectedTrip.driveType !== '왕복') {
         pTypeText = this.selectedTrip.driveType; 
       } else {
-        if(this.passengerTypeSelection === 'go') pTypeText = '갈때만';
-        else if(this.passengerTypeSelection === 'back') pTypeText = '올때만';
+        if(this.passengerTypeSelection === 'go') pTypeText = '가는 길';
+        else if(this.passengerTypeSelection === 'back') pTypeText = '오는 길';
         else pTypeText = '왕복 모두';
       }
 
@@ -729,10 +729,10 @@
             ⚙️ 관리자 제어창
           </button>
           <button @click="step = 'driver'; driverResetAction();" :class="step === 'driver' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
-            👨‍✈️ 운전자 모드
+            👨‍✈️ 운전자
           </button>
           <button @click="step = 'passenger'; selectedTrip = null; lastReservedData = null;" :class="step === 'passenger' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
-            🙋‍♀️ 동승자 목록
+            🙋‍♀️ 동승자
           </button>
         </div>
 
@@ -898,7 +898,7 @@
             </div>
           </template>
 
-          <!-- [👨‍✈️ 2. 운전자] -->
+          <!-- [👨‍✈️ 2. 운전자 모드] -->
           <template x-if="step === 'driver'">
             <div class="space-y-4">
               <div>
@@ -1032,7 +1032,7 @@
             </div>
           </template>
 
-          <!-- [🙋‍♀️ 3. 동승자] -->
+          <!-- [🙋‍♀️ 3. 동승자 모드 목록] -->
           <template x-if="step === 'passenger' && !selectedTrip">
             <div class="space-y-4">
               <h2 class="text-base font-black text-gray-900">🚗 실시간 가용 카풀 운행 리스트</h2>
