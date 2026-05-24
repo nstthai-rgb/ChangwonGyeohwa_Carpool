@@ -3,11 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>창원경화카풀 시스템 v30</title>
+  <title>창원경화카풀 시스템 v29</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   
-  <!-- 🌐 Firebase 라이브러리 탑재 -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
   <script>
@@ -34,7 +33,7 @@
 
     isUserLoggedIn: false, 
     loginName: '',
-    loginPasswordInput: '', 
+    loginPhoneTail: '',
     currentUser: null, 
 
     isAdminAuthenticated: false,
@@ -47,29 +46,19 @@
     newAdminId: '',
     newAdminPassword: '',
     showPasswordModal: false,
-    showMyInfoModal: false, 
 
-    // 내 정보 변경용 변수
-    myNewPassword: '',
-
-    // [⏱️ 자동 로그아웃 시간 설정]
+    // [⏱️ 자동 로그아웃 시간 설정 (분 단위)]
     sessionTimeoutMins: 180, 
 
     // [👥 회원 관리]
     allowedMembers: [],
     newMemberName: '',
     newMemberPhone: '',
-    bulkMemberInput: '', 
 
-    // [📍 정류소 관리]
+    // [📍 정류소(경유지) 관리]
     masterStops: [],
     newStopName: '',
 
-    // [💬 기본 메시지 문구 설정]
-    msgTemplatePassenger: '[창원경화카풀 탑승요청]\n• 운전자: {driverName}님\n• 일시: {date} [{time}]\n• 동승자: {passengerName} ({count}명)\n• 픽업지: {pickup}\n• 타입: {type}\n\n운전자님 수락 부탁드립니다!',
-    msgTemplateDriver: '[창원경화카풀 알림]\n• {passengerName}님 카풀 신청이 [{status}] 되었습니다.\n• 일시: {date} [{time}]\n• 픽업지: {pickup} ({count}명)\n• 타입: {type}\n- 운전자: {driverName}',
-
-    // 운전자 등록 폼
     inputDate: '', 
     inputTime: '18:30',
     inputSeats: 1, 
@@ -78,10 +67,7 @@
     driverOrderedStops: [],
     inputPassengerPhone: '010-',
     
-    // 운전자 운행 타입 ('go', 'back')
-    driverDriveType: ['go', 'back'], 
-
-    // 순서 변경(드래그) 상태
+    // 순서 변경(드래그)을 위한 상태 변수들
     draggedIndex: null,
     touchStartY: 0,
     currentTouchIndex: null,
@@ -95,21 +81,22 @@
     selectedTrip: null,
     passengerPickup: '',
     passengerCount: 1,
-    passengerTypeSelection: 'go', 
     
     lastReservedData: null, 
     lastDriverActionData: null, 
 
-    // 시스템 초기 구동
+    // 시스템 초기 구동 및 실시간 연동
     initSystem() {
       const today = new Date();
       this.inputDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
+      // 1. 공지사항 실시간 받아오기
       db.ref('systemNotice').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) this.notice = data;
       });
 
+      // 2. 관리자 계정 정보 실시간 받아오기
       db.ref('adminAccount').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -118,44 +105,36 @@
         }
       });
 
-      // 메시지 템플릿 로드
-      db.ref('msgTemplatePassenger').on('value', (snapshot) => { if(snapshot.val()) this.msgTemplatePassenger = snapshot.val(); });
-      db.ref('msgTemplateDriver').on('value', (snapshot) => { if(snapshot.val()) this.msgTemplateDriver = snapshot.val(); });
-
+      // 3. 자동 로그아웃 제한 시간 설정 실시간 받아오기
       db.ref('sessionTimeoutMins').on('value', (snapshot) => {
         const data = snapshot.val();
-        if (data !== null) this.sessionTimeoutMins = parseInt(data);
+        if (data !== null) {
+          this.sessionTimeoutMins = parseInt(data);
+        }
+        // 시간 설정 동기화가 끝나면 로컬 스토리지 기반 세션 체크 작동
         this.checkLoginSession();
       });
 
-      // 회원 명단 실시간 연동 (비밀번호, 실패 횟수, 잠금 여부 포함)
+      // 4. 회원 명단 실시간 받아오기
       db.ref('allowedMembers').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
           this.allowedMembers = Object.values(data).map(m => ({
             id: String(m.id),
             name: String(m.name).trim(),
-            phoneTail: String(m.phoneTail).trim(),
-            password: m.password ? String(m.password).trim() : '4321',
-            failCount: m.failCount !== undefined ? parseInt(m.failCount) : 0,
-            isLocked: m.isLocked || false
+            phoneTail: String(m.phoneTail).trim()
           }));
-          
-          // 현재 로그인된 유저 정보 동기화
-          if (this.currentUser && this.currentUser.id !== 'admin_master') {
-            const updatedMe = this.allowedMembers.find(m => m.id === this.currentUser.id);
-            if (updatedMe) this.currentUser = updatedMe;
-          }
         } else {
           this.allowedMembers = [
-            { id: 'm_1', name: '홍길동', phoneTail: '1234', password: '4321', failCount: 0, isLocked: false },
-            { id: 'm_2', name: '이순신', phoneTail: '5678', password: '4321', failCount: 0, isLocked: false },
-            { id: 'm_3', name: '김경화', phoneTail: '0000', password: '4321', failCount: 0, isLocked: false }
+            { id: 'm_1', name: '홍길동', phoneTail: '1234' },
+            { id: 'm_2', name: '이순신', phoneTail: '5678' },
+            { id: 'm_3', name: '김경화', phoneTail: '0000' }
           ];
           this.syncMembersToFirebase();
         }
       });
 
+      // 5. 정류소 목록 실시간 받아오기
       db.ref('masterStops').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -181,6 +160,7 @@
         }
       });
 
+      // 6. 카풀 목록 실시간 받아오기
       db.ref('trips').on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -198,41 +178,62 @@
       });
     },
 
+    // ⏱️ 브라우저 로컬스토리지 기반 세션 유효성 체크 함수
     checkLoginSession() {
       const sessionData = localStorage.getItem('carpool_session');
       if (!sessionData) return;
+
       try {
         const session = JSON.parse(sessionData);
         const now = Date.now();
         const diffMins = (now - session.loginTime) / (1000 * 60);
 
+        // 지정된 자동 로그아웃 시간을 넘었는지 체크
         if (diffMins > this.sessionTimeoutMins) {
           this.userLogout();
-          alert('⏱️ 세션 유지 시간이 만료되어 자동 로그아웃 되었습니다.');
+          alert('⏱️ 지정된 세션 유지 시간이 만료되어 자동 로그아웃 되었습니다.');
         } else {
+          // 세션 유효함 -> 로그인 상태 복구
           this.currentUser = session.user;
           this.isAdminAuthenticated = session.isAdmin || false;
           this.isUserLoggedIn = true;
           this.step = this.isAdminAuthenticated ? 'admin' : 'passenger';
+          
+          // 새로고침 시 세션 수명 연장을 원하면 아래 주석 해제 (활동 기준 연장)
+          // this.saveSessionToStorage(session.user, session.isAdmin);
         }
       } catch (e) {
         this.userLogout();
       }
     },
 
+    // 세션 임시 저장 로직
     saveSessionToStorage(user, isAdmin = false) {
-      localStorage.setItem('carpool_session', JSON.stringify({ user, isAdmin, loginTime: Date.now() }));
+      const sessionObj = {
+        user: user,
+        isAdmin: isAdmin,
+        loginTime: Date.now()
+      };
+      localStorage.setItem('carpool_session', JSON.stringify(sessionObj));
     },
 
+    // 운전자용 경유지 선택 시 순서 정렬 빌더
     rebuildDriverRoute() {
       let currentStops = this.masterStops.filter(stop => this.selectedStopIds.includes(stop.id));
       let newOrdered = [];
-      this.driverOrderedStops.forEach(os => { if (currentStops.some(cs => cs.id === os.id)) newOrdered.push(os); });
-      currentStops.forEach(cs => { if (!newOrdered.some(no => no.id === cs.id)) newOrdered.push(cs); });
+      
+      this.driverOrderedStops.forEach(os => {
+        if (currentStops.some(cs => cs.id === os.id)) newOrdered.push(os);
+      });
+      
+      currentStops.forEach(cs => {
+        if (!newOrdered.some(no => no.id === cs.id)) newOrdered.push(cs);
+      });
+      
       this.driverOrderedStops = newOrdered;
     },
 
-    // 👨‍✈️ 운전자 노선 조작 (핸들러 영역 한정)
+    // 👨‍✈️ 운전자 노선 설정 드래그앤드롭 로직
     handleDragStart(index, event) { this.draggedIndex = index; event.dataTransfer.effectAllowed = 'move'; },
     handleDragOver(index, event) {
       event.preventDefault();
@@ -241,12 +242,13 @@
       this.draggedIndex = index;
     },
     handleDragEnd() { this.draggedIndex = null; },
+
     handleTouchStart(index, event) { this.currentTouchIndex = index; this.touchStartY = event.touches[0].clientY; },
     handleTouchMove(index, event) {
       if (this.currentTouchIndex === null) return;
       const currentY = event.touches[0].clientY;
       const diffY = currentY - this.touchStartY;
-      if (Math.abs(diffY) > 30) {
+      if (Math.abs(diffY) > 35) {
         const targetIndex = diffY > 0 ? index + 1 : index - 1;
         if (targetIndex >= 0 && targetIndex < this.driverOrderedStops.length) {
           this.swapRouteItems(index, targetIndex);
@@ -256,6 +258,7 @@
       }
     },
     handleTouchEnd() { this.currentTouchIndex = null; },
+
     swapRouteItems(fromIndex, toIndex) {
       let targetArray = [...this.driverOrderedStops];
       const movedItem = targetArray.splice(fromIndex, 1)[0];
@@ -263,7 +266,7 @@
       this.driverOrderedStops = targetArray;
     },
 
-    // 👑 관리자 정류소 목록 조작 (핸들러 영역 한정)
+    // 👑 관리자 기본 마스터 노선 드래그앤드롭 및 파이어베이스 정렬 연동 로직
     handleAdminDragStart(index, event) { this.draggedAdminIndex = index; event.dataTransfer.effectAllowed = 'move'; },
     handleAdminDragOver(index, event) {
       event.preventDefault();
@@ -272,12 +275,13 @@
       this.draggedAdminIndex = index;
     },
     handleAdminDragEnd() { this.draggedAdminIndex = null; this.syncMasterStopsToFirebase(); },
+
     handleAdminTouchStart(index, event) { this.currentTouchAdminIndex = index; this.touchAdminStartY = event.touches[0].clientY; },
     handleAdminTouchMove(index, event) {
       if (this.currentTouchAdminIndex === null) return;
       const currentY = event.touches[0].clientY;
       const diffY = currentY - this.touchAdminStartY;
-      if (Math.abs(diffY) > 30) {
+      if (Math.abs(diffY) > 35) {
         const targetIndex = diffY > 0 ? index + 1 : index - 1;
         if (targetIndex >= 0 && targetIndex < this.masterStops.length) {
           this.swapAdminStops(index, targetIndex);
@@ -287,6 +291,7 @@
       }
     },
     handleAdminTouchEnd() { this.currentTouchAdminIndex = null; this.syncMasterStopsToFirebase(); },
+
     swapAdminStops(fromIndex, toIndex) {
       let targetArray = [...this.masterStops];
       const movedItem = targetArray.splice(fromIndex, 1)[0];
@@ -294,127 +299,84 @@
       this.masterStops = targetArray;
     },
 
+    // 회원 명단 자동 저장
     syncMembersToFirebase() {
       const uploadObj = {};
       this.allowedMembers.forEach(m => {
-        uploadObj[m.id] = { id: m.id, name: m.name, phoneTail: m.phoneTail, password: m.password, failCount: m.failCount, isLocked: m.isLocked };
+        uploadObj[m.id] = { id: String(m.id), name: String(m.name).trim(), phoneTail: String(m.phoneTail).trim() };
       });
       db.ref('allowedMembers').set(uploadObj);
     },
+
+    // 정류소 목록 자동 저장
     syncMasterStopsToFirebase() {
       const uploadObj = {};
-      this.masterStops.forEach((s, idx) => { uploadObj[s.id] = { id: s.id, name: s.name, sortOrder: idx }; });
+      this.masterStops.forEach((s, idx) => {
+        uploadObj[s.id] = {
+          id: String(s.id),
+          name: String(s.name).trim(),
+          sortOrder: idx
+        };
+      });
       db.ref('masterStops').set(uploadObj);
     },
+
+    // 카풀 목록 자동 저장
     syncTripsToFirebase() {
       const dataToSave = {};
       this.trips.forEach(trip => { dataToSave[trip.id] = trip; });
       db.ref('trips').set(dataToSave);
     },
 
-    updateSystemNotice() { db.ref('systemNotice').set(this.notice); alert('📢 공지사항이 반영되었습니다.'); },
+    updateSystemNotice() {
+      db.ref('systemNotice').set(this.notice);
+      alert('📢 공지사항이 실시간으로 변경되었습니다.');
+    },
+
+    // ⏱️ 자동 로그아웃 시간 업데이트 저장 함수
     updateSessionTimeout() {
       const targetVal = parseInt(this.sessionTimeoutMins);
       if (isNaN(targetVal) || targetVal <= 0) return alert('정확한 분 단위를 입력해 주세요.');
       db.ref('sessionTimeoutMins').set(targetVal);
-      alert(`⏱️ 자동 로그아웃 시간이 [${targetVal}분]으로 저장되었습니다.`);
-    },
-    updateMsgTemplates() {
-      db.ref('msgTemplatePassenger').set(this.msgTemplatePassenger);
-      db.ref('msgTemplateDriver').set(this.msgTemplateDriver);
-      alert('💬 알림 메시지 기본 문구가 저장되었습니다.');
+      alert(`⏱️ 자동 로그아웃 기준 시간이 [${targetVal}분]으로 저장되었습니다.`);
     },
 
     getDayOfWeek(dateString) {
       const week = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
-      return week[new Date(dateString).getDay()] || '';
-    },
-    isSunday(dateString) {
-      return new Date(dateString).getDay() === 0;
+      const dayIndex = new Date(dateString).getDay();
+      return isNaN(dayIndex) ? '' : week[dayIndex];
     },
 
     get activeTrips() {
       const todayStr = new Date().toISOString().split('T')[0];
       return this.trips.filter(trip => trip.date >= todayStr);
     },
+
     get myDrivenTrips() {
       if (!this.currentUser) return [];
       return this.trips.filter(trip => trip.driverName === this.currentUser.name);
     },
 
-    // 🔒 회원 로그인 인증 (보안 강화 및 실패 계정 잠금)
     tryUserLogin() {
-      if (!this.loginName.trim() || !this.loginPasswordInput.trim()) return alert('이름과 비밀번호를 입력해 주세요.');
+      if (!this.loginName.trim() || !this.loginPhoneTail.trim()) return alert('이름과 전화번호 뒷자리를 입력해 주세요.');
       const targetName = String(this.loginName).replace(/\s/g, '');
-      
-      // 이름으로 회원 찾기
-      const member = this.allowedMembers.find(m => String(m.name).replace(/\s/g, '') === targetName);
-      
-      if (!member) {
-        return alert('❌ 승인된 사용자가 아닙니다. 회원명을 확인해 주세요.');
-      }
+      const targetTail = String(this.loginPhoneTail).replace(/\s/g, '');
 
-      if (member.isLocked) {
-        return alert('🔒 비밀번호 5회 오류로 계정이 잠겼습니다. 관리자에게 해제를 요청하세요.');
-      }
-
-      if (member.password === this.loginPasswordInput.trim()) {
-        member.failCount = 0;
-        this.syncMembersToFirebase();
-        
+      const member = this.allowedMembers.find(m => 
+        String(m.name).replace(/\s/g, '') === targetName && String(m.phoneTail).replace(/\s/g, '') === targetTail
+      );
+      
+      if (member) {
         this.currentUser = member;
         this.isAdminAuthenticated = false;
         this.isUserLoggedIn = true;
         this.step = 'passenger';
+        
+        // ⏱️ 로컬 스토리지에 세션 저장 시작
         this.saveSessionToStorage(member, false);
-        alert(`🔓 [${member.name}]님 환영합니다. (초기 비밀번호인 경우 내 정보에서 변경 가능)`);
-        this.loginPasswordInput = '';
+        alert(`🔓 인증 성공! [${member.name}]님 반갑습니다.`);
       } else {
-        member.failCount = (member.failCount || 0) + 1;
-        if (member.failCount >= 5) {
-          member.isLocked = true;
-          this.syncMembersToFirebase();
-          alert('🚨 비밀번호를 5회 틀려 계정이 잠겼습니다. 관리자에게 잠금 해제를 요청해 주세요.');
-        } else {
-          this.syncMembersToFirebase();
-          alert(`❌ 비밀번호가 올바르지 않습니다. (오류 횟수: ${member.failCount}/5)`);
-        }
-      }
-    },
-
-    // ⚙️ 회원이 직접 자신의 비밀번호 변경
-    changeMyPassword() {
-      if(!this.myNewPassword.trim()) return alert('변경할 새 비밀번호를 입력하세요.');
-      
-      const member = this.allowedMembers.find(m => m.id === this.currentUser.id);
-      if(member) {
-        member.password = this.myNewPassword.trim();
-        this.syncMembersToFirebase();
-        this.currentUser = member;
-        this.showMyInfoModal = false;
-        this.myNewPassword = '';
-        alert('🔑 비밀번호가 성공적으로 변경되었습니다.');
-      }
-    },
-
-    // 👑 관리자가 회원 비밀번호 리셋 및 잠금 해제
-    resetMemberPassword(memberId) {
-      const member = this.allowedMembers.find(m => m.id === memberId);
-      if (member) {
-        member.password = '4321';
-        member.failCount = 0;
-        member.isLocked = false;
-        this.syncMembersToFirebase();
-        alert(`⚙️ [${member.name}] 회원의 비밀번호를 '4321'로 리셋하고 잠금을 해제했습니다.`);
-      }
-    },
-    unlockMember(memberId) {
-      const member = this.allowedMembers.find(m => m.id === memberId);
-      if (member) {
-        member.isLocked = false;
-        member.failCount = 0;
-        this.syncMembersToFirebase();
-        alert(`⚙️ [${member.name}] 회원의 계정 잠금을 해제했습니다.`);
+        alert('❌ 승인된 사용자가 아닙니다. 관리자가 등록한 회원 정보와 정확히 일치해야 합니다.');
       }
     },
 
@@ -425,105 +387,97 @@
         this.isUserLoggedIn = true;
         this.step = 'admin';
         this.showPasswordModal = false;
+        
         this.newAdminId = this.currentAdminId;
         this.newAdminPassword = this.currentAdminPassword;
-        this.adminIdInput = ''; this.adminPasswordInput = '';
+        this.adminIdInput = '';
+        this.adminPasswordInput = '';
+
+        // ⏱️ 관리자 세션 저장 시작
         this.saveSessionToStorage(this.currentUser, true);
-        alert('👑 관리자 제어 화면으로 진입했습니다.');
+        alert('👑 관리자 전용 제어 화면으로 진입했습니다.');
       } else {
-        alert('❌ 관리자 계정 정보가 일치하지 않습니다.');
+        alert('❌ 관리자 아이디 혹은 비밀번호가 일치하지 않습니다.');
       }
     },
 
     userLogout() {
-      this.isUserLoggedIn = false; this.isAdminAuthenticated = false; this.currentUser = null;
-      this.loginName = ''; this.loginPasswordInput = ''; this.lastReservedData = null; this.lastDriverActionData = null;
-      this.inputDriverPhone = '010-'; this.inputPassengerPhone = '010-'; this.step = 'passenger';
+      this.isUserLoggedIn = false;
+      this.isAdminAuthenticated = false;
+      this.currentUser = null;
+      this.loginName = '';
+      this.loginPhoneTail = '';
+      this.lastReservedData = null;
+      this.lastDriverActionData = null;
+      this.inputDriverPhone = '010-'; 
+      this.inputPassengerPhone = '010-';
+      this.step = 'passenger';
+      // ⏱️ 저장된 브라우저 세션 삭제
       localStorage.removeItem('carpool_session');
     },
 
     updateAdminAccount() {
-      if (!this.newAdminId.trim() || !this.newAdminPassword.trim()) return alert('변경할 정보를 기입해 주세요.');
+      if (!this.newAdminId.trim() || !this.newAdminPassword.trim()) return alert('변경할 아이디와 비밀번호를 채워주세요.');
       db.ref('adminAccount').set({ id: this.newAdminId.trim(), password: this.newAdminPassword.trim() });
-      alert(`⚙️ 관리자 계정이 변경되었습니다.`);
+      alert(`⚙️ 관리자 계정 정보가 성공적으로 변경되었습니다.`);
     },
 
     addAllowedMember() {
-      if (!this.newMemberName.trim() || !this.newMemberPhone.trim()) return alert('이름과 전화번호 뒷자리를 입력해 주세요.');
-      const name = this.newMemberName.trim();
-      const phone = this.newMemberPhone.trim();
+      if (!this.newMemberName.trim() || !this.newMemberPhone.trim()) return alert('이름과 전화번호 뒷자리 4자리를 기입해 주세요.');
+      const memberName = this.newMemberName.trim();
+      const memberPhone = this.newMemberPhone.trim();
 
-      if (this.allowedMembers.some(m => m.name === name && m.phoneTail === phone)) return alert('⚠️ 이미 존재합니다.');
-      
-      this.allowedMembers.push({ id: 'm_' + Date.now(), name, phoneTail: phone, password: '4321', failCount: 0, isLocked: false });
+      if (this.allowedMembers.some(m => String(m.name).trim() === memberName && String(m.phoneTail).trim() === memberPhone)) {
+        return alert('⚠️ 이미 등록된 회원 정보입니다.');
+      }
+      this.allowedMembers.push({ id: 'm_' + Date.now(), name: memberName, phoneTail: memberPhone });
       this.syncMembersToFirebase();
-      alert(`👥 [${name}]님이 초기 비밀번호 4321로 등록되었습니다.`);
-      this.newMemberName = ''; this.newMemberPhone = '';
-    },
-
-    // 👥 회원 다중/일괄 등록 기능
-    addBulkMembers() {
-      if(!this.bulkMemberInput.trim()) return alert('등록할 명단을 입력해 주세요.');
-      const lines = this.bulkMemberInput.split('\n');
-      let count = 0;
-
-      lines.forEach(line => {
-        if(!line.trim()) return;
-        const tokens = line.split(',');
-        if(tokens.length >= 2) {
-          const name = tokens[0].trim();
-          const phone = tokens[1].trim();
-          if(name && phone && !this.allowedMembers.some(m => m.name === name && m.phoneTail === phone)) {
-            this.allowedMembers.push({ id: 'm_bulk_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4), name, phoneTail: phone, password: '4321', failCount: 0, isLocked: false });
-            count++;
-          }
-        }
-      });
-      this.syncMembersToFirebase();
-      alert(`👥 총 ${count}명의 회원이 초기 비밀번호 '4321'로 일괄 등록되었습니다.`);
-      this.bulkMemberInput = '';
+      alert(`👥 [${memberName}]님이 회원 명단에 추가되었습니다.`);
+      this.newMemberName = '';
+      this.newMemberPhone = '';
     },
 
     removeMember(memberId, name) {
-      if (!confirm(`🚨 [${name}] 회원을 삭제하시겠습니까?`)) return;
+      if (!confirm(`🚨 [${name}] 회원을 명단에서 삭제하시겠습니까?`)) return;
       this.allowedMembers = this.allowedMembers.filter(m => m.id !== memberId);
       this.syncMembersToFirebase();
       if (this.currentUser && this.currentUser.name === name) this.userLogout();
     },
 
     addMasterStop() {
-      if (!this.newStopName.trim()) return alert('정류소 이름을 입력해 주세요.');
+      if (!this.newStopName.trim()) return alert('추가할 정류소 이름을 입력해 주세요.');
       const stopName = this.newStopName.trim();
-      if (this.masterStops.some(s => s.name === stopName)) return alert('⚠️ 이미 존재합니다.');
-      this.masterStops.push({ id: 'stop_' + Date.now(), name: stopName, sortOrder: this.masterStops.length });
+
+      if (this.masterStops.some(s => s.name === stopName)) return alert('⚠️ 이미 등록되어 있는 정류소 이름입니다.');
+
+      this.masterStops.push({
+        id: 'stop_' + Date.now(),
+        name: stopName,
+        sortOrder: this.masterStops.length
+      });
+
       this.syncMasterStopsToFirebase();
-      alert(`📍 [${stopName}] 정류소가 추가되었습니다.`);
+      alert(`📍 [${stopName}] 정류소가 최하단에 추가되었습니다.`);
       this.newStopName = '';
     },
+
     removeMasterStop(stopId, name) {
-      if (!confirm(`🚨 [${name}] 정류소를 제어 명단에서 삭제하시겠습니까?`)) return;
+      if (!confirm(`🚨 [${name}] 정류소를 완전히 삭제하시겠습니까?`)) return;
       this.masterStops = this.masterStops.filter(s => s.id !== stopId);
       this.selectedStopIds = this.selectedStopIds.filter(id => id !== stopId);
       this.rebuildDriverRoute();
       this.syncMasterStopsToFirebase();
     },
 
-    // 🚗 카풀 등록 (왕복/편도 처리 및 상태 가독성 확대)
     registerTrip() {
       let finalDriverName = this.currentUser.name;
       if (!this.inputDate) return alert('운행 날짜를 선택해 주세요.');
       let phoneValue = this.inputDriverPhone.trim();
       if (!phoneValue || phoneValue === '010-') return alert('운전자 연락처를 입력해 주세요.');
       if (this.driverOrderedStops.length === 0) return alert('경유 정류소를 하나 이상 선택해 주세요.');
-      if (this.driverDriveType.length === 0) return alert('운행 형태(갈때/올때)를 하나 이상 체크해 주세요.');
       
-      if (this.inputDate < new Date().toISOString().split('T')[0]) return alert('⚠️ 지난 날짜는 등록 불가합니다.');
-
-      // 운행 타입 판별
-      let typeText = '';
-      if (this.driverDriveType.includes('go') && this.driverDriveType.includes('back')) typeText = '왕복';
-      else if (this.driverDriveType.includes('go')) typeText = '갈때만';
-      else if (this.driverDriveType.includes('back')) typeText = '올때만';
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (this.inputDate < todayStr) return alert('⚠️ 지나간 날짜는 등록할 수 없습니다.');
 
       const newTrip = {
         id: 'trip_' + Date.now(),
@@ -536,49 +490,37 @@
         totalSeats: parseInt(this.inputSeats),
         remainingSeats: parseInt(this.inputSeats),
         route: JSON.parse(JSON.stringify(this.driverOrderedStops)),
-        driveType: typeText, // '왕복', '갈때만', '올때만'
         passengers: []
       };
       
       this.trips.unshift(newTrip);
       this.syncTripsToFirebase();
-      alert(`🚗 [${typeText}] 카풀 일정이 시스템에 등록되었습니다.`);
+      alert(`🚗 카풀 일정이 등록되었습니다.`);
       this.selectedStopIds = []; this.driverOrderedStops = []; this.inputSeats = 1;
     },
 
     updateTripSeats(trip, newTotal) {
       newTotal = parseInt(newTotal);
       let approvedSeats = (trip.passengers || []).filter(p => p.status === 'approved').reduce((sum, p) => sum + p.count, 0);
-      if (newTotal < approvedSeats) return alert(`❌ 수락 인원(${approvedSeats}명)보다 작게 줄일 수 없습니다.`);
-      trip.totalSeats = newTotal; trip.remainingSeats = newTotal - approvedSeats;
+      if (newTotal < approvedSeats) return alert(`❌ 수락 완료된 인원(${approvedSeats}명)보다 작게 모집 좌석을 줄일 수 없습니다.`);
+      trip.totalSeats = newTotal;
+      trip.remainingSeats = newTotal - approvedSeats;
       this.syncTripsToFirebase();
     },
 
     selectTrip(trip) {
       this.selectedTrip = trip; this.passengerPickup = ''; this.passengerCount = 1; this.inputPassengerPhone = '010-';
-      // 기정의된 운전자 조건에 맞게 동승 기본 신청 설정 변경
-      this.passengerTypeSelection = trip.driveType === '올때만' ? 'back' : 'go';
     },
 
-    // 🙋‍♀️ 동승 신청 승인 예약 빌더
     confirmReservation() {
-      if (!this.passengerPickup) return alert('탑승 버스 정류소를 선택해 주세요.');
+      if (!this.passengerPickup) return alert('탑승할 장소를 선택해 주세요.');
       let pPhone = this.inputPassengerPhone.trim();
-      if (!pPhone || pPhone === '010-') return alert('동승자 연락처를 기입하세요.');
-      if (this.selectedTrip.remainingSeats < this.passengerCount) return alert('잔여 좌석이 부족합니다.');
+      if (!pPhone || pPhone === '010-') return alert('동승자 연락처를 입력해 주세요.');
+      if (this.selectedTrip.remainingSeats < this.passengerCount) return alert('현재 남은 좌석이 부족합니다.');
       
-      let pTypeText = '';
-      if(this.selectedTrip.driveType !== '왕복') {
-        pTypeText = this.selectedTrip.driveType; 
-      } else {
-        if(this.passengerTypeSelection === 'go') pTypeText = '갈때만';
-        else if(this.passengerTypeSelection === 'back') pTypeText = '올때만';
-        else pTypeText = '왕복 모두';
-      }
-
       if (!this.selectedTrip.passengers) this.selectedTrip.passengers = [];
       const newPassenger = {
-        id: 'ps_' + Date.now(), name: this.currentUser.name, phone: pPhone, count: parseInt(this.passengerCount), pickup: this.passengerPickup, status: 'pending', requestedType: pTypeText
+        id: 'ps_' + Date.now(), name: this.currentUser.name, phone: pPhone, count: parseInt(this.passengerCount), pickup: this.passengerPickup, status: 'pending' 
       };
       this.selectedTrip.passengers.push(newPassenger);
       this.syncTripsToFirebase();
@@ -586,79 +528,51 @@
       this.lastReservedData = {
         driverName: this.selectedTrip.driverName, driverPhone: this.selectedTrip.driverPhone, 
         date: this.selectedTrip.date, time: this.selectedTrip.departureTime,
-        passengerName: newPassenger.name, count: newPassenger.count, pickup: newPassenger.pickup, type: pTypeText
+        passengerName: newPassenger.name, count: newPassenger.count, pickup: newPassenger.pickup
       };
-      alert('🎉 카풀 탑승 신청이 전송되었습니다.');
+      alert('🎉 탑승 신청이 완료되었습니다.');
     },
 
     acceptPassenger(trip, passenger) {
       if (trip.remainingSeats < passenger.count) return alert('❌ 남은 좌석이 부족합니다.');
       passenger.status = 'approved'; trip.remainingSeats -= passenger.count;
       this.syncTripsToFirebase();
-      this.lastDriverActionData = { status: '수락', passengerName: passenger.name, passengerPhone: passenger.phone, date: trip.date, time: trip.departureTime, pickup: passenger.pickup, count: passenger.count, type: passenger.requestedType || '기본', driverName: trip.driverName };
+      this.lastDriverActionData = { type: '수락', passengerName: passenger.name, passengerPhone: passenger.phone, date: trip.date, time: trip.departureTime, pickup: passenger.pickup, count: passenger.count, driverName: trip.driverName };
     },
 
     rejectPassenger(trip, passenger) {
       if (passenger.status === 'approved') trip.remainingSeats += passenger.count;
       passenger.status = 'rejected';
       this.syncTripsToFirebase();
-      this.lastDriverActionData = { status: '거절', passengerName: passenger.name, passengerPhone: passenger.phone, date: trip.date, time: trip.departureTime, pickup: passenger.pickup, count: passenger.count, type: passenger.requestedType || '기본', driverName: trip.driverName };
+      this.lastDriverActionData = { type: '거절', passengerName: passenger.name, passengerPhone: passenger.phone, date: trip.date, time: trip.departureTime, pickup: passenger.pickup, count: passenger.count, driverName: trip.driverName };
     },
 
-    // 💬 가변 커스텀 메시지 파서 적용 통보문 전송 로직
     sendDriverSms() {
       if (!this.lastDriverActionData) return;
       const d = this.lastDriverActionData;
-      let message = this.msgTemplateDriver
-        .replace(/{passengerName}/g, d.passengerName)
-        .replace(/{status}/g, d.status)
-        .replace(/{date}/g, d.date)
-        .replace(/{time}/g, d.time)
-        .replace(/{pickup}/g, d.pickup)
-        .replace(/{count}/g, d.count)
-        .replace(/{type}/g, d.type)
-        .replace(/{driverName}/g, d.driverName);
+      const message = `[창원경화카풀] 신청결과\n▶${d.passengerName}님 신청 건\n▶일시: ${d.date} (${d.time})\n▶결과: 카풀 탑승이 [${d.type}] 되었습니다.\n- 운전자: ${d.driverName}`;
       window.location.href = `sms:${d.passengerPhone}?body=${encodeURIComponent(message)}`;
     },
+
     copyDriverKakaoText() {
       if (!this.lastDriverActionData) return;
       const d = this.lastDriverActionData;
-      let message = this.msgTemplateDriver
-        .replace(/{passengerName}/g, d.passengerName)
-        .replace(/{status}/g, d.status)
-        .replace(/{date}/g, d.date)
-        .replace(/{time}/g, d.time)
-        .replace(/{pickup}/g, d.pickup)
-        .replace(/{count}/g, d.count)
-        .replace(/{type}/g, d.type)
-        .replace(/{driverName}/g, d.driverName);
-      navigator.clipboard.writeText(message).then(() => alert('📋 알림 문구가 복사되었습니다!')).catch(() => alert('복사 실패'));
+      const message = `[창원경화카풀 알림]\n• ${d.passengerName}님 카풀 신청이 [${d.type}] 되었습니다.\n• 일시: ${d.date} [${d.time}]\n• 픽업지: ${d.pickup} (${d.count}명)\n\n결과 공유 부탁드립니다.`;
+      navigator.clipboard.writeText(message).then(() => alert('📋 카톡 문구가 복사되었습니다!')).catch(() => alert('복사 실패'));
     },
+
     sendSmsNotification() {
       if (!this.lastReservedData) return;
       const d = this.lastReservedData;
-      let message = this.msgTemplatePassenger
-        .replace(/{driverName}/g, d.driverName)
-        .replace(/{date}/g, d.date)
-        .replace(/{time}/g, d.time)
-        .replace(/{passengerName}/g, d.passengerName)
-        .replace(/{count}/g, d.count)
-        .replace(/{pickup}/g, d.pickup)
-        .replace(/{type}/g, d.type);
+      const message = `[창원경화카풀] 예약요청\n▶운전자: ${d.driverName}님\n▶운행일시: ${d.date} (${d.time})\n▶탑승신청자: ${d.passengerName} (${d.count}명)\n▶픽업장소: ${d.pickup}\n\n확인 수락 부탁드립니다!`;
       window.location.href = `sms:${d.driverPhone}?body=${encodeURIComponent(message)}`;
     },
+
     copyKakaoText() {
       if (!this.lastReservedData) return;
       const d = this.lastReservedData;
-      let message = this.msgTemplatePassenger
-        .replace(/{driverName}/g, d.driverName)
-        .replace(/{date}/g, d.date)
-        .replace(/{time}/g, d.time)
-        .replace(/{passengerName}/g, d.passengerName)
-        .replace(/{count}/g, d.count)
-        .replace(/{pickup}/g, d.pickup)
-        .replace(/{type}/g, d.type);
-      navigator.clipboard.writeText(message).then(() => alert('📋 문구가 복사되었습니다!'));
+      const message = `[창원경화카풀 탑승요청]\n• 운전자: ${d.driverName}님\n• 일시: ${d.date} [${d.time}]\n• 동승자: ${d.passengerName} (${d.count}명)\n• 픽업지: ${d.pickup}\n\n운전자님 수락 부탁드립니다!`;
+      navigator.clipboard.writeText(message).then(() => alert('📋 복사되었습니다!')).catch(() => alert('복사 실패'));
     },
 
     cancelPassengerBooking(trip, passenger, isAdminAction = false) {
@@ -669,34 +583,32 @@
       this.lastReservedData = null;
       this.syncTripsToFirebase();
     },
+
     driverResetAction() { this.lastDriverActionData = null; },
     cancelDriverTrip(trip, isAdminAction = false) {
-      if (!confirm(isAdminAction ? `🚨 [관리자 조치] 일정을 전면 폐기할까요?` : '등록하신 카풀 일정을 취소하시겠습니까?')) return;
+      if (!confirm(isAdminAction ? `🚨 [관리자 조치] 일정을 취소할까요?` : '등록하신 카풀 일정을 취소하시겠습니까?')) return;
       this.trips = this.trips.filter(t => t.id !== trip.id);
       this.selectedTrip = null; this.lastReservedData = null; this.lastDriverActionData = null;
       this.syncTripsToFirebase();
     }
   }" x-init="initSystem()" class="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col h-[880px] relative">
 
-    <!-- 상단 앱 브랜딩 바 -->
-    <div class="bg-gray-900 text-white px-4 py-3 flex justify-between items-center text-xs shrink-0">
+    <div class="bg-gray-900 text-white px-4 py-3 flex justify-between items-center text-xs">
       <div class="flex items-center gap-2 w-full">
-        <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v30</span>
+        <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v29 🌐</span>
         <div class="flex items-center gap-2 ml-auto" x-show="isUserLoggedIn">
-          <!-- 내 정보 보기 제어 단추 -->
-          <button @click="if(currentUser.id !== 'admin_master') { showMyInfoModal = true; myNewPassword = currentUser.password; }" class="text-gray-300 font-bold bg-gray-800 px-2 py-0.5 rounded cursor-pointer transition-all hover:bg-gray-700" x-text="`👤 ${currentUser?.name}님`"></button>
-          <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px] cursor-pointer font-bold">로그아웃</button>
+          <span class="text-gray-300 font-bold" x-text="`👤 ${currentUser?.name}님`"></span>
+          <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px] cursor-pointer">로그아웃</button>
         </div>
       </div>
     </div>
 
-    <!-- ==================== [🚪 로그아웃 상태 화면] ==================== -->
     <template x-if="!isUserLoggedIn">
-      <div class="flex-1 flex flex-col justify-center items-center p-6 space-y-6 bg-gray-50 overflow-y-auto">
+      <div class="flex-1 flex flex-col justify-center items-center p-6 space-y-6 bg-gray-50">
         <div class="text-center space-y-2">
           <div class="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-2xl mx-auto">🌐</div>
           <h2 class="text-lg font-black text-gray-900">창원경화카풀 실시간 시스템</h2>
-          <p class="text-xs text-gray-500">인증된 회원명과 비밀번호로 로그인하세요.</p>
+          <p class="text-xs text-gray-500">등록된 회원만 진입할 수 있습니다.</p>
         </div>
 
         <div class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-3.5">
@@ -705,11 +617,11 @@
             <input type="text" x-model="loginName" placeholder="예: 홍길동" class="w-full p-2.5 text-xs border border-gray-200 rounded-xl font-bold bg-gray-50 focus:bg-white focus:outline-none">
           </div>
           <div>
-            <label class="block text-xs font-bold text-gray-500 mb-1">비밀번호 (초기: 4321)</label>
-            <input type="password" x-model="loginPasswordInput" placeholder="비밀번호 입력" class="w-full p-2.5 text-xs border border-gray-200 rounded-xl text-center font-bold bg-gray-50 focus:bg-white focus:outline-none" @keydown.enter="tryUserLogin()">
+            <label class="block text-xs font-bold text-gray-500 mb-1">전화번호 뒷자리 (4자리)</label>
+            <input type="password" maxlength="4" x-model="loginPhoneTail" placeholder="예: 1234" class="w-full p-2.5 text-xs border border-gray-200 rounded-xl text-center font-bold bg-gray-50 focus:bg-white focus:outline-none" @keydown.enter="tryUserLogin()">
           </div>
           <button @click="tryUserLogin()" class="w-full bg-emerald-600 text-white font-black py-3 rounded-xl text-xs shadow-md cursor-pointer">
-            보안 로그인 및 접속
+            회원 인증 및 로그인
           </button>
         </div>
 
@@ -719,105 +631,81 @@
       </div>
     </template>
 
-    <!-- ==================== [📱 로그인 완료 화면] ==================== -->
     <template x-if="isUserLoggedIn">
       <div class="flex-1 flex flex-col overflow-hidden">
         
-        <!-- 대메뉴 탭 -->
         <div class="flex border-b border-gray-100 bg-gray-50 p-2 gap-1 shrink-0">
           <button x-show="isAdminAuthenticated" @click="step = 'admin';" :class="step === 'admin' ? 'bg-red-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
-            ⚙️ 관리자 제어창
+            ⚙️ 관리자 관리창
           </button>
           <button @click="step = 'driver'; driverResetAction();" :class="step === 'driver' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
-            👨‍✈️ 운전자 모드
+            👨‍✈️ 운전자
           </button>
           <button @click="step = 'passenger'; selectedTrip = null; lastReservedData = null;" :class="step === 'passenger' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100'" class="flex-1 py-2 text-center rounded-lg font-bold transition-all text-xs cursor-pointer">
-            🙋‍♀️ 동승자 목록
+            🙋‍♀️ 동승자
           </button>
         </div>
 
-        <!-- 실시간 공지 배너 -->
         <div class="bg-amber-50 border-b border-amber-100 px-4 py-2.5 text-xs text-amber-800 font-bold text-center shrink-0" x-show="notice">
           <div x-text="notice"></div>
         </div>
 
-        <!-- 내부 스크롤 컨테이너 -->
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
 
-          <!-- 👑 [🛠️ 1. 관리자 전용 제어 화면] -->
           <template x-if="step === 'admin' && isAdminAuthenticated">
             <div class="space-y-4">
               
               <div class="flex justify-between items-center bg-red-50 p-3 rounded-xl border border-red-100">
                 <div>
-                  <h2 class="text-xs font-black text-red-900">👑 최고 관리자 시스템 콘솔</h2>
+                  <h2 class="text-xs font-black text-red-900">👑 최고 관리자 제어실</h2>
+                  <p class="text-[10px] text-red-600 mt-0.5">시스템 설정 및 마스터 정류소 제어 중</p>
                 </div>
-                <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded cursor-pointer">콘솔 아웃</button>
+                <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded cursor-pointer">관리자 로그아웃</button>
               </div>
 
-              <!-- 공지사항 수정 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-xs">
-                <span class="text-xs font-black text-gray-800 block">📢 공지사항 편집</span>
+                <span class="text-xs font-black text-gray-800 block">📢 공지사항 내용 변경</span>
                 <textarea x-model="notice" rows="2" class="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold bg-gray-50 focus:bg-white focus:outline-none"></textarea>
-                <button @click="updateSystemNotice()" class="w-full bg-amber-500 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">📢 공지사항 실시간 배포</button>
+                <button @click="updateSystemNotice()" class="w-full bg-amber-500 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">📢 공지사항 업데이트</button>
               </div>
 
-              <!-- 💬 기본 알림 메시지 기본 문구 설정 커스텀 창 -->
-              <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
-                <span class="text-xs font-black text-gray-800 block">💬 기본 알림 메시지 서식 관리</span>
-                
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500 font-bold">🙋‍♀️ 동승자용 예약 요청 문구</label>
-                  <textarea x-model="msgTemplatePassenger" rows="4" class="w-full p-2 border border-gray-200 rounded-lg text-[11px] font-medium bg-gray-50 focus:bg-white focus:outline-none"></textarea>
-                </div>
-
-                <div class="space-y-1">
-                  <label class="text-[10px] text-gray-500 font-bold">👨‍✈️ 운전자용 처리 결과 문구</label>
-                  <textarea x-model="msgTemplateDriver" rows="4" class="w-full p-2 border border-gray-200 rounded-lg text-[11px] font-medium bg-gray-50 focus:bg-white focus:outline-none"></textarea>
-                </div>
-
-                <p class="text-[9px] text-blue-500 font-bold leading-normal">치환 태그 예시: {driverName}, {passengerName}, {date}, {time}, {pickup}, {count}, {type}, {status}</p>
-                <button @click="updateMsgTemplates()" class="w-full bg-indigo-600 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">💾 메시지 서식 일괄 저장</button>
-              </div>
-
-              <!-- ⏱️ 자동 로그아웃 시간 설정 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-xs">
-                <span class="text-xs font-black text-gray-800 block">⏱️ 자동 로그아웃 시간 설정 (분)</span>
+                <span class="text-xs font-black text-gray-800 block">⏱️ 자동 로그아웃 시간 설정 (분 단위)</span>
                 <div class="flex gap-2">
                   <input type="number" x-model="sessionTimeoutMins" min="5" max="1440" class="flex-1 p-2 border rounded-lg bg-gray-50 font-bold text-center text-xs focus:bg-white focus:outline-none">
-                  <button @click="updateSessionTimeout()" class="bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shrink-0 cursor-pointer">💾 저장</button>
+                  <button @click="updateSessionTimeout()" class="bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shrink-0 cursor-pointer">💾 시간 저장</button>
                 </div>
+                <p class="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                  ※ 설정된 시간이 지나면 새로고침 시 자동 로그아웃됩니다. (60 = 1시간 / 180 = 3시간 / 1440 = 24시간)
+                </p>
               </div>
 
-              <!-- 📍 마스터 정류소 편집 (드래그 핸들 분리) -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
                 <div>
-                  <span class="text-xs font-black text-gray-800 block">📍 버스 정류소 마스터 목록 편집</span>
-                  <p class="text-[10px] text-blue-600 font-extrabold mt-0.5">※ 정렬 순서는 왼쪽의 [☰] 핸들 영역을 드래그하여 조절하세요.</p>
+                  <span class="text-xs font-black text-gray-800 block">📍 정류소(타는 곳) 마스터 목록 관리</span>
+                  <p class="text-[10px] text-blue-600 font-extrabold mt-0.5">※ 항목을 끌어서 배치 순서를 변경하면 실시간 반영됩니다.</p>
                 </div>
                 
                 <div class="flex gap-2 text-xs">
-                  <input type="text" x-model="newStopName" placeholder="정류소 이름" class="flex-1 p-2 border rounded-lg bg-gray-50 font-bold focus:bg-white focus:outline-none">
-                  <button @click="addMasterStop()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg font-bold text-xs shrink-0 cursor-pointer">➕ 추가</button>
+                  <input type="text" x-model="newStopName" placeholder="예: 신규 정류소 이름" class="flex-1 p-2 border rounded-lg bg-gray-50 font-bold focus:bg-white focus:outline-none">
+                  <button @click="addMasterStop()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg font-bold text-xs shrink-0 cursor-pointer">➕ 정류소 추가</button>
                 </div>
 
                 <div class="border-t border-gray-100 pt-2 space-y-1 max-h-48 overflow-y-auto">
+                  <template x-if="masterStops.length === 0">
+                    <div class="text-center py-4 text-[11px] text-gray-400">등록된 정류소가 없습니다.</div>
+                  </template>
                   <template x-for="(s, index) in masterStops" :key="s.id">
-                    <div class="flex items-center gap-2 text-xs p-2 bg-gray-50 border border-gray-100 rounded-lg select-none">
-                      <!-- ☰ 및 숫자 영역만 드래그 바인딩 -->
-                      <div class="flex items-center gap-1 bg-gray-200 px-2 py-1 rounded text-gray-600 touch-none font-bold text-xs cursor-row-resize shrink-0"
-                           draggable="true"
-                           @dragstart="handleAdminDragStart(index, $event)"
-                           @dragover="handleAdminDragOver(index, $event)"
-                           @dragend="handleAdminDragEnd()"
-                           @touchstart="handleAdminTouchStart(index, $event)"
-                           @touchmove="handleAdminTouchMove(index, $event)"
-                           @touchend="handleAdminTouchEnd()">
-                        <span>☰</span>
-                        <span x-text="index + 1"></span>
-                      </div>
-                      
-                      <!-- 텍스트 영역: 드래그 간섭 없이 자연스럽게 터치 스크롤 가능 -->
+                    <div class="flex items-center gap-2 text-xs p-2 bg-gray-50 border border-gray-100 rounded-lg select-none touch-none"
+                         draggable="true"
+                         @dragstart="handleAdminDragStart(index, $event)"
+                         @dragover="handleAdminDragOver(index, $event)"
+                         @dragend="handleAdminDragEnd()"
+                         @touchstart="handleAdminTouchStart(index, $event)"
+                         @touchmove="handleAdminTouchMove(index, $event)"
+                         @touchend="handleAdminTouchEnd()">
+                      <div class="text-gray-400 font-bold px-1 text-sm cursor-row-resize">☰</div>
+                      <span class="font-extrabold text-gray-400" x-text="`${index + 1}`"></span>
                       <span class="font-bold text-gray-700 truncate flex-1" x-text="s.name"></span>
                       <button @click="removeMasterStop(s.id, s.name)" class="text-[10px] text-red-500 font-bold px-1.5 py-0.5 bg-white border border-red-100 rounded cursor-pointer shrink-0">삭제</button>
                     </div>
@@ -825,70 +713,49 @@
                 </div>
               </div>
 
-              <!-- 회원 명단 개별/일괄 등록 및 관리 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
-                <span class="text-xs font-black text-gray-800 block">👥 회원 명단 및 보안 통제</span>
-                
-                <!-- 개별 등록 -->
-                <div class="p-2 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
-                  <div class="text-[10px] font-bold text-gray-400">단일 회원 등록</div>
-                  <div class="grid grid-cols-2 gap-2 text-xs">
-                    <input type="text" x-model="newMemberName" placeholder="실명 입력" class="p-2 border rounded-lg bg-white font-bold">
-                    <input type="text" maxlength="4" x-model="newMemberPhone" placeholder="뒷자리 4자리" class="p-2 border rounded-lg bg-white text-center font-bold">
-                  </div>
-                  <button @click="addAllowedMember()" class="w-full bg-gray-900 text-white font-bold py-1.5 rounded-lg text-[11px] cursor-pointer">➕ 개별 등록</button>
+                <span class="text-xs font-black text-gray-800 block">👥 이용 가능한 회원 명단 추가</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <input type="text" x-model="newMemberName" placeholder="실명 입력" class="p-2 border rounded-lg bg-gray-50 font-bold">
+                  <input type="text" maxlength="4" x-model="newMemberPhone" placeholder="뒷자리 4자리" class="p-2 border rounded-lg bg-gray-50 text-center font-bold">
                 </div>
+                <button @click="addAllowedMember()" class="w-full bg-gray-900 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">➕ 신규 명단 추가 등록</button>
 
-                <!-- 일괄 등록 -->
-                <div class="p-2 bg-gray-50 rounded-lg border border-gray-100 space-y-1">
-                  <div class="text-[10px] font-bold text-gray-400">명단 일괄 등록 (쉼표와 줄바꿈 구분)</div>
-                  <textarea x-model="bulkMemberInput" rows="3" placeholder="홍길동,1234&#10;이순신,5678" class="w-full p-2 bg-white border rounded-lg text-xs font-bold focus:outline-none"></textarea>
-                  <button @click="addBulkMembers()" class="w-full bg-blue-700 text-white font-bold py-1.5 rounded-lg text-[11px] cursor-pointer">👥 회원 명단 대량 등록</button>
-                </div>
-
-                <!-- 회원 관리 리스트 (암호초기화 및 계정 잠금해제 포함) -->
-                <div class="border-t border-gray-100 pt-2 space-y-1 max-h-48 overflow-y-auto">
+                <div class="border-t border-gray-100 pt-2 space-y-1 max-h-36 overflow-y-auto">
                   <template x-for="m in allowedMembers" :key="m.id">
-                    <div class="flex flex-col gap-1 text-xs p-2 bg-gray-50 border rounded-lg">
-                      <div class="flex justify-between items-center">
-                        <span class="font-extrabold text-gray-800" x-text="`${m.name} (${m.phoneTail})`"></span>
-                        <div class="flex items-center gap-1">
-                          <template x-if="m.isLocked">
-                            <span class="bg-red-100 text-red-800 text-[9px] font-black px-1 rounded animate-pulse">🔒 잠김</span>
-                          </template>
-                          <button @click="removeMember(m.id, m.name)" class="text-[10px] text-red-500 font-bold px-1 rounded cursor-pointer">삭제</button>
-                        </div>
-                      </div>
-                      <div class="flex gap-1 pt-0.5">
-                        <button @click="resetMemberPassword(m.id)" class="flex-1 bg-white border border-gray-300 text-gray-700 text-[10px] font-bold py-0.5 rounded cursor-pointer">🔑 암호 초기화(4321)</button>
-                        <template x-if="m.isLocked">
-                          <button @click="unlockMember(m.id)" class="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer">🔓 잠금 해제</button>
-                        </template>
-                      </div>
+                    <div class="flex justify-between items-center text-xs p-1.5 bg-gray-50 rounded">
+                      <span class="font-bold text-gray-700" x-text="`• ${m.name} (${m.phoneTail})`"></span>
+                      <button @click="removeMember(m.id, m.name)" class="text-[10px] text-red-500 font-bold px-2 py-0.5 rounded cursor-pointer">삭제</button>
                     </div>
                   </template>
                 </div>
               </div>
 
-              <!-- 관리자 계정 변경 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
-                <span class="text-xs font-black text-gray-800 block">👑 관리자 인증 변경</span>
+                <span class="text-xs font-black text-gray-800 block">⚙️ 관리자 로그인 계정 변경</span>
                 <div class="grid grid-cols-2 gap-2 text-xs">
-                  <input type="text" x-model="newAdminId" placeholder="새 ID" class="p-2 border rounded-lg bg-gray-50 font-bold">
-                  <input type="text" x-model="newAdminPassword" placeholder="새 암호" class="p-2 border rounded-lg bg-gray-50 text-center font-bold">
+                  <input type="text" x-model="newAdminId" placeholder="새 아이디" class="p-2 border rounded-lg bg-gray-50 font-bold">
+                  <input type="text" x-model="newAdminPassword" placeholder="새 비밀번호" class="p-2 border rounded-lg bg-gray-50 text-center font-bold">
                 </div>
-                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">💾 관리자 정보 변경</button>
+                <button @click="updateAdminAccount()" class="w-full bg-red-600 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">💾 계정 정보 시스템에 저장</button>
               </div>
 
-              <!-- 전역 배차 관리 -->
               <div class="space-y-2">
-                <label class="text-xs font-black text-gray-800 block">📋 전역 카풀 강제 취소 관리</label>
+                <label class="text-xs font-black text-gray-800 block">📋 등록된 카풀 목록 강제 제어</label>
                 <div class="space-y-2">
                   <template x-for="trip in trips" :key="trip.id">
                     <div class="p-3 bg-white border border-gray-200 rounded-xl space-y-2 text-xs">
                       <div class="flex justify-between items-center">
-                        <span class="font-extrabold text-gray-900" x-text="`🚗 ${trip.driverName} | ${trip.driveType}`"></span>
-                        <button @click="cancelDriverTrip(trip, true)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">강제 파기</button>
+                        <span class="font-extrabold text-gray-900" x-text="`🚗 운전자: ${trip.driverName} (${trip.date})`"></span>
+                        <button @click="cancelDriverTrip(trip, true)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">전체 취소</button>
+                      </div>
+                      <div class="space-y-1 pt-1 border-t border-dashed border-gray-100">
+                        <template x-for="p in trip.passengers || []" :key="p.id">
+                          <div class="flex justify-between items-center bg-red-50/50 p-1 rounded">
+                            <span class="text-gray-700 text-[11px]" x-text="`• ${p.name} [${p.status}]`"></span>
+                            <button @click="cancelPassengerBooking(trip, p, true)" class="text-[10px] text-red-600 font-bold cursor-pointer">예약취소</button>
+                          </div>
+                        </template>
                       </div>
                     </div>
                   </template>
@@ -898,43 +765,29 @@
             </div>
           </template>
 
-          <!-- [👨‍✈️ 2. 운전자 모드] -->
           <template x-if="step === 'driver'">
             <div class="space-y-4">
               <div>
-                <h2 class="text-base font-black text-gray-900">👨‍✈️ 운전자 카풀 노선 등록</h2>
-                <p class="text-xs text-blue-600 mt-0.5 font-bold" x-text="`기사명: ${currentUser?.name}`"></p>
+                <h2 class="text-base font-black text-gray-900">👨‍✈️ 운전자 카풀 등록 및 관리</h2>
+                <p class="text-xs text-blue-600 mt-0.5 font-bold" x-text="`등록 이름: ${currentUser?.name}`"></p>
               </div>
 
-              <div class="bg-gray-50 p-3.5 rounded-xl border border-gray-100 space-y-3 text-xs">
-                <!-- 편도 / 왕복 선택 UI 추가 -->
-                <div class="bg-indigo-50 p-2.5 rounded-lg border border-indigo-100 space-y-1.5">
-                  <label class="block font-black text-indigo-950">🔄 운행 형태 설정 (복수 선택 시 왕복)</label>
-                  <div class="flex gap-4 font-bold text-gray-700">
-                    <label class="flex items-center gap-1.5 cursor-pointer">
-                      <input type="checkbox" value="go" x-model="driverDriveType" class="w-4 h-4 text-indigo-600"> 갈때만 (출근/등교 등)
-                    </label>
-                    <label class="flex items-center gap-1.5 cursor-pointer">
-                      <input type="checkbox" value="back" x-model="driverDriveType" class="w-4 h-4 text-indigo-600"> 올때만 (퇴근/하교 등)
-                    </label>
-                  </div>
-                </div>
-
+              <div class="bg-gray-50 p-3.5 rounded-xl border border-gray-100 space-y-2.5 text-xs">
                 <div class="bg-blue-50 p-2.5 rounded-lg border border-blue-100">
-                  <label class="block font-black text-blue-900 mb-1">📞 운전자 직통 연락처</label>
+                  <label class="block font-black text-blue-900 mb-1">📞 운전자 연락처</label>
                   <input type="tel" x-model="inputDriverPhone" class="w-full p-2 border border-blue-200 rounded-lg bg-white font-bold text-gray-800 focus:outline-none">
                 </div>
                 <div>
-                  <label class="block font-bold text-gray-500 mb-1">📅 배차 운행 날짜</label>
+                  <label class="block font-bold text-gray-500 mb-1">📅 운행 날짜 선택</label>
                   <input type="date" x-model="inputDate" class="w-full p-2 border border-gray-200 rounded-lg bg-white font-bold">
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                   <div>
-                    <label class="block font-bold text-gray-500 mb-1">⏰ 출발 시각</label>
+                    <label class="block font-bold text-gray-500 mb-1">⏰ 시간</label>
                     <input type="time" x-model="inputTime" class="w-full p-2 border border-gray-200 rounded-lg bg-white">
                   </div>
                   <div>
-                    <label class="block font-bold text-gray-500 mb-1">👥 제공 가능 총 좌석</label>
+                    <label class="block font-bold text-gray-500 mb-1">👥 모집 좌석</label>
                     <select x-model="inputSeats" class="w-full p-2 border border-gray-200 rounded-lg bg-white font-bold">
                       <option value="1">1석</option><option value="2">2석</option><option value="3">3석</option><option value="4">4석</option><option value="5">5석</option>
                     </select>
@@ -942,12 +795,11 @@
                 </div>
               </div>
 
-              <!-- 정류소 다중 체크 선택 -->
               <div class="space-y-1.5">
-                <label class="text-xs font-bold text-gray-700 block">☑️ 경유지 정류소 선택</label>
+                <label class="text-xs font-bold text-gray-700 block">☑️ 경유할 정류소 선택 (중복 가능)</label>
                 <div class="grid grid-cols-1 gap-1 max-h-32 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-100">
                   <template x-for="stop in masterStops" :key="stop.id">
-                    <label class="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer text-xs">
+                    <label class="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer text-xs select-none">
                       <input type="checkbox" :value="stop.id" x-model="selectedStopIds" @change="rebuildDriverRoute()" class="w-4 h-4 text-blue-600 rounded">
                       <span class="font-bold text-gray-700 truncate" x-text="stop.name"></span>
                     </label>
@@ -955,59 +807,49 @@
                 </div>
               </div>
 
-              <!-- 운전자 정류소 순서 변경 (드래그 핸들 분리 완료) -->
               <div class="space-y-1.5">
-                <label class="text-xs font-bold text-gray-700 block">🔄 경유 순서 설정 <span class="text-[10px] text-blue-600 font-extrabold ml-1">(오른쪽 정류소명 영역을 터치하면 정상 스크롤됩니다)</span></label>
+                <label class="text-xs font-bold text-gray-700 block">🔄 경유 순서 설정 <span class="text-[10px] text-blue-600 font-extrabold ml-1">(☰ 밀어서 조절)</span></label>
                 <div class="space-y-1 max-h-36 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-200 border-dashed">
                   <template x-if="driverOrderedStops.length === 0">
-                    <div class="text-center py-4 text-[11px] text-gray-400">정류소를 선택하면 하단에 배차 노선 패널이 나타납니다.</div>
+                    <div class="text-center py-4 text-[11px] text-gray-400">정류소를 선택하면 배차 노선이 완성됩니다.</div>
                   </template>
                   <template x-for="(stop, index) in driverOrderedStops" :key="stop.id">
-                    <div class="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded-lg text-xs select-none">
-                      <!-- ☰ 기호 및 순서 숫자 영역만 터치 드래그 연동 -->
-                      <div class="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded text-gray-500 font-bold cursor-row-resize shrink-0 touch-none"
-                           draggable="true"
-                           @dragstart="handleDragStart(index, $event)" 
-                           @dragover="handleDragOver(index, $event)" 
-                           @dragend="handleDragEnd()"
-                           @touchstart="handleTouchStart(index, $event)" 
-                           @touchmove="handleTouchMove(index, $event)" 
-                           @touchend="handleTouchEnd()">
-                        <span>☰</span>
-                        <span x-text="index + 1"></span>
-                      </div>
-                      <!-- 정류소 텍스트 영역: 일반 스크롤 조작에만 반응 -->
-                      <span class="font-bold text-gray-800 truncate flex-1" x-text="stop.name"></span>
+                    <div class="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded-lg text-xs select-none touch-none"
+                         draggable="true"
+                         @dragstart="handleDragStart(index, $event)" @dragover="handleDragOver(index, $event)" @dragend="handleDragEnd()"
+                         @touchstart="handleTouchStart(index, $event)" @touchmove="handleTouchMove(index, $event)" @touchend="handleTouchEnd()">
+                      <div class="text-gray-400 font-bold px-1 text-sm cursor-row-resize">☰</div>
+                      <span class="font-black text-blue-600" x-text="`${index + 1}.`"></span>
+                      <span class="font-bold text-gray-800 truncate" x-text="stop.name"></span>
                     </div>
                   </template>
                 </div>
               </div>
 
-              <button @click="registerTrip()" class="w-full bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-md cursor-pointer">🚗 카풀 노선 공식 등록</button>
+              <button @click="registerTrip()" class="w-full bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-md cursor-pointer">🚗 카풀 운행 일정 등록</button>
 
               <hr class="border-gray-100">
 
-              <!-- 내 카풀 승인 현황 -->
               <div class="space-y-2">
-                <h3 class="text-xs font-black text-gray-800">📥 내 운행 카풀 및 동승 신청 처리</h3>
+                <h3 class="text-xs font-black text-gray-800">📥 대기중인 동승 신청 현황</h3>
                 <div class="space-y-2.5 max-h-60 overflow-y-auto">
                   <template x-if="myDrivenTrips.length === 0">
-                    <div class="text-center py-6 text-[11px] text-gray-400 bg-gray-50 rounded-xl border">등록 관리중인 내 카풀 운행 내역이 없습니다.</div>
+                    <div class="text-center py-6 text-[11px] text-gray-400 bg-gray-50 rounded-xl border">등록된 내 카풀 일정이 없습니다.</div>
                   </template>
                   <template x-for="trip in myDrivenTrips" :key="trip.id">
                     <div class="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2 text-xs">
                       <div class="flex justify-between items-center pb-2 border-b border-dashed border-blue-200">
-                        <span class="font-black text-blue-900" x-text="`📅 ${trip.date} (${trip.departureTime}) [${trip.driveType}]`"></span>
-                        <button @click="cancelDriverTrip(trip)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">일정 파기</button>
+                        <span class="font-black text-blue-900" x-text="`📅 ${trip.date} (${trip.departureTime})`"></span>
+                        <button @click="cancelDriverTrip(trip)" class="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">일정 취소</button>
                       </div>
                       <div class="space-y-2">
                         <template x-for="p in trip.passengers || []" :key="p.id">
                           <div class="bg-white p-2 rounded-xl border border-gray-200 flex flex-col gap-1 shadow-xs">
                             <div class="flex justify-between items-center">
-                              <span class="font-black text-gray-800" x-text="`🙋‍♀️ ${p.name} (${p.count}명) - [${p.requestedType || '기본'}]`"></span>
-                              <span class="text-[10px] font-bold px-1.5 py-0.2 rounded" :class="p.status === 'pending' ? 'bg-amber-100 text-amber-800' : p.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'" x-text="p.status === 'pending' ? '대기' : p.status === 'approved' ? '수락' : '거절'"></span>
+                              <span class="font-black text-gray-800" x-text="`🙋‍♀️ ${p.name} (${p.count}명)`"></span>
+                              <span class="text-[10px] font-bold px-1.5 py-0.2 rounded" :class="p.status === 'pending' ? 'bg-amber-100 text-amber-800' : p.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'" x-text="p.status === 'pending' ? '대기 중' : p.status === 'approved' ? '수락됨' : '거절됨'"></span>
                             </div>
-                            <div class="text-[10px] text-gray-500" x-text="`📍 탑승: ${p.pickup}`"></div>
+                            <div class="text-[10px] text-gray-500" x-text="`📍 탑승지: ${p.pickup}`"></div>
                             <div class="flex gap-1 pt-1">
                               <button @click="rejectPassenger(trip, p)" class="flex-1 bg-gray-100 text-gray-700 border py-1 rounded-lg text-[10px] font-bold cursor-pointer">거절</button>
                               <button @click="acceptPassenger(trip, p)" class="flex-1 bg-blue-600 text-white py-1 rounded-lg text-[10px] font-bold cursor-pointer">수락</button>
@@ -1016,8 +858,8 @@
                             <template x-if="lastDriverActionData && lastDriverActionData.passengerName === p.name">
                               <div class="bg-slate-900 text-white p-2 rounded-md space-y-1.5 mt-1">
                                 <div class="grid grid-cols-2 gap-1.5 text-center">
-                                  <button @click="sendDriverSms()" class="bg-blue-600 text-white text-[10px] font-black py-1 rounded cursor-pointer">💬 결과 문자 발송</button>
-                                  <button @click="copyDriverKakaoText()" class="bg-yellow-500 text-gray-950 text-[10px] font-black py-1 rounded cursor-pointer">💛 카톡내용 복사</button>
+                                  <button @click="sendDriverSms()" class="bg-blue-600 text-white text-[10px] font-black py-1 rounded cursor-pointer">💬 문자 통보</button>
+                                  <button @click="copyDriverKakaoText()" class="bg-yellow-500 text-gray-950 text-[10px] font-black py-1 rounded cursor-pointer">💛 카톡 복사</button>
                                 </div>
                               </div>
                             </template>
@@ -1032,15 +874,14 @@
             </div>
           </template>
 
-          <!-- [🙋‍♀️ 3. 동승자 모드 목록] -->
           <template x-if="step === 'passenger' && !selectedTrip">
             <div class="space-y-4">
-              <h2 class="text-base font-black text-gray-900">🚗 실시간 가용 카풀 운행 리스트</h2>
+              <h2 class="text-base font-black text-gray-900">🚗 등록된 카풀 목록</h2>
 
               <template x-if="lastReservedData">
                 <div class="bg-emerald-950 text-white p-4 rounded-2xl border-2 border-emerald-400 space-y-3 shadow-lg">
                   <div class="flex justify-between items-center text-xs text-emerald-300 font-bold">
-                    <span>📱 운전자에게 탑승 요청문 발송 연동</span>
+                    <span>📱 탑승 요청 문자/카톡 전송</span>
                     <button @click="lastReservedData = null" class="text-gray-400">✕</button>
                   </div>
                   <div class="grid grid-cols-2 gap-2">
@@ -1052,42 +893,31 @@
 
               <div class="space-y-2">
                 <template x-if="activeTrips.length === 0">
-                  <div class="text-center py-12 bg-gray-50 border border-dashed rounded-2xl text-gray-400 text-xs">운행 대기중인 활성 카풀이 없습니다.</div>
+                  <div class="text-center py-12 bg-gray-50 border border-dashed rounded-2xl text-gray-400 text-xs">등록된 카풀 일정이 없습니다.</div>
                 </template>
                 <template x-for="trip in activeTrips" :key="trip.id">
                   <div class="p-4 bg-white border border-gray-200 rounded-xl space-y-2.5 shadow-xs">
-                    
-                    <!-- 날짜/요일 크기 변경 및 가독성 개선 (일요일 빨간색 처리) -->
-                    <div class="flex justify-between items-start">
-                      <div class="text-sm">
-                        <span class="font-bold text-gray-900" x-text="trip.date"></span>
-                        <span class="font-extrabold ml-1" :class="isSunday(trip.date) ? 'text-red-600' : 'text-gray-900'" x-text="`(${trip.dayOfWeek})`"></span>
-                        
-                        <!-- 편도 / 왕복 여부 표시 배지 -->
-                        <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded font-black" :class="trip.driveType === '왕복' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'" x-text="trip.driveType"></span>
-                        
-                        <h3 class="font-extrabold text-gray-700 mt-1" x-text="`운전자: ${trip.driverName}`"></h3>
+                    <div class="flex justify-between items-start text-xs">
+                      <div>
+                        <span class="bg-emerald-50 text-emerald-700 font-black px-2 py-0.5 rounded text-[10px]" x-text="`${trip.date} (${trip.dayOfWeek})`"></span>
+                        <h3 class="font-extrabold text-gray-800 mt-1" x-text="`운전자: ${trip.driverName}`"></h3>
                       </div>
-                      <span class="font-black text-blue-600 bg-blue-50 px-2 py-1 rounded text-xs shrink-0" x-text="`${trip.departureTime} 출발`"></span>
+                      <span class="font-black text-blue-600 bg-blue-50 px-2 py-1 rounded text-[11px]" x-text="`${trip.departureTime} 출발`"></span>
                     </div>
 
-                    <!-- 버스 정류소 명칭 고지 수정 -->
-                    <div class="space-y-1 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                      <span class="text-[9px] text-gray-400 font-extrabold block">🚌 경유 버스 정류소 안내</span>
-                      <div class="flex flex-wrap items-center gap-1 text-[10px]">
-                        <template x-for="(st, idx) in trip.route" :key="st.id">
-                          <div class="flex items-center gap-0.5">
-                            <span class="font-bold text-gray-700 bg-white px-1.5 py-0.5 rounded border border-gray-100" x-text="st.name"></span>
-                            <span x-show="idx < trip.route.length - 1" class="text-gray-300">→</span>
-                          </div>
-                        </template>
-                      </div>
+                    <div class="flex flex-wrap items-center gap-1 text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                      <template x-for="(st, idx) in trip.route" :key="st.id">
+                        <div class="flex items-center gap-0.5">
+                          <span class="font-bold text-gray-700 bg-white px-1.5 py-0.5 rounded border border-gray-100" x-text="st.name"></span>
+                          <span x-show="idx < trip.route.length - 1" class="text-gray-300 font-bold">→</span>
+                        </div>
+                      </template>
                     </div>
 
                     <div class="pt-1 space-y-1">
                       <template x-for="p in (trip.passengers || []).filter(ps => ps.name === currentUser.name)" :key="p.id">
                         <div class="flex justify-between items-center p-2 rounded text-[11px] font-bold" :class="p.status === 'approved' ? 'bg-emerald-50 text-emerald-800' : p.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-800'">
-                          <span x-text="`⏳ 신청형태: [${p.requestedType || '기본'}] -> 결과: ${p.status === 'pending' ? '대기 중' : p.status === 'approved' ? '수락 완료🎉' : '거절됨'}`"></span>
+                          <span x-text="p.status === 'pending' ? '⏳ 신청 완료: 대기 중' : p.status === 'approved' ? '✅ 매칭 성공! 수락됨🎉' : '❌ 매칭 거절됨'"></span>
                           <button @click="cancelPassengerBooking(trip, p)" class="bg-gray-800 text-white font-normal text-[9px] px-2 py-0.5 rounded cursor-pointer">취소</button>
                         </div>
                       </template>
@@ -1095,7 +925,7 @@
                       <div class="flex justify-between items-center mt-1">
                         <span class="text-[11px] text-gray-500 font-bold" x-text="`남은좌석: ${trip.remainingSeats}석 / 전체: ${trip.totalSeats}석`"></span>
                         <template x-if="trip.remainingSeats <= 0">
-                          <span class="bg-gray-400 text-white font-black px-4 py-1.5 rounded-lg text-xs">만석</span>
+                          <span class="bg-red-600 text-white font-black px-4 py-1.5 rounded-lg text-xs shadow-sm">만석 ❌</span>
                         </template>
                         <template x-if="trip.remainingSeats > 0">
                           <button @click="selectTrip(trip)" class="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer">탑승 신청</button>
@@ -1108,54 +938,34 @@
             </div>
           </template>
 
-          <!-- [🙋‍♀️ 동승자 세부 신청 화면] -->
           <template x-if="step === 'passenger' && selectedTrip">
             <div class="space-y-4">
               <button @click="selectedTrip = null;" class="text-gray-400 text-xs bg-gray-100 px-2 py-1 rounded-md cursor-pointer">← 목록으로</button>
               <div class="p-3 bg-emerald-50 rounded-xl text-xs font-bold text-emerald-900" x-text="`${selectedTrip.date} [${selectedTrip.departureTime}] | 운전자: ${selectedTrip.driverName}`"></div>
 
-              <!-- 왕복 운행인 경우 동승자 맞춤 선택사항 옵션 활성화 UI -->
-              <template x-if="selectedTrip.driveType === '왕복'">
-                <div class="bg-purple-50 p-3 rounded-xl border border-purple-200 space-y-1.5 text-xs">
-                  <label class="block font-black text-purple-950">🔄 탑승 희망 조건 선택</label>
-                  <div class="flex gap-3 font-bold text-gray-700">
-                    <label class="flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="p_type" value="go" x-model="passengerTypeSelection"> 갈때만
-                    </label>
-                    <label class="flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="p_type" value="back" x-model="passengerTypeSelection"> 올때만
-                    </label>
-                    <label class="flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="p_type" value="both" x-model="passengerTypeSelection"> 왕복 모두
-                    </label>
-                  </div>
-                </div>
-              </template>
-
               <div class="bg-emerald-50/50 p-3 rounded-xl border border-emerald-200 space-y-1">
-                <label class="block text-xs font-black text-emerald-900">📞 탑승자 비상 연락처</label>
+                <label class="block text-xs font-black text-emerald-900">📞 연락처 입력</label>
                 <input type="tel" x-model="inputPassengerPhone" class="w-full p-2 text-xs border border-emerald-300 rounded-lg bg-white font-bold text-gray-800 focus:outline-none">
               </div>
-              
               <div class="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center text-xs">
-                <label class="font-bold text-gray-700">👥 동반 예약 인원</label>
+                <label class="font-bold text-gray-700">👥 신청 인원</label>
                 <select x-model="passengerCount" class="bg-white border p-1 rounded-lg font-bold">
                   <option value="1">1명</option><option value="2">2명</option><option value="3">3명</option>
                 </select>
               </div>
 
               <div class="space-y-1.5">
-                <label class="text-xs font-bold text-gray-700 block">👋 탑승할 버스 정류소 선택</label>
+                <label class="text-xs font-bold text-gray-700 block">👋 타는 곳 선택</label>
                 <div class="space-y-1 max-h-48 overflow-y-auto">
                   <template x-for="stop in selectedTrip.route" :key="stop.id">
                     <label :class="passengerPickup === stop.name ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200'" class="flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs bg-white">
-                      <input type="radio" name="p_pickup" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
+                      <input type="radio" name="p_pickup_v29" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
                       <span class="font-extrabold text-gray-800" x-text="stop.name"></span>
                     </label>
                   </template>
                 </div>
               </div>
-              <button @click="confirmReservation(); selectedTrip = null;" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl text-xs shadow-md cursor-pointer">⚡ 탑승 신청서 확정 전송</button>
+              <button @click="confirmReservation(); selectedTrip = null;" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl text-xs shadow-md cursor-pointer">⚡ 최종 탑승 신청 완료</button>
             </div>
           </template>
 
@@ -1163,43 +973,22 @@
       </div>
     </template>
 
-    <!-- 🔑 내 정보 확인 및 회원 직접 비밀번호 변경 모달 -->
-    <div x-show="showMyInfoModal" class="absolute inset-0 bg-black/60 flex justify-center items-center p-6 z-50" x-transition>
-      <div class="bg-white rounded-2xl p-5 w-full max-w-xs space-y-3 shadow-2xl">
-        <h3 class="text-sm font-black text-gray-900 text-center">⚙️ 내 정보 관리 (비밀번호 변경)</h3>
-        <div class="text-xs text-gray-600 space-y-1 bg-gray-50 p-2 rounded-lg">
-          <p x-text="`• 이름: ${currentUser?.name}`"></p>
-          <p x-text="`• 계정 식별 번호: ${currentUser?.phoneTail}`"></p>
-        </div>
-        <div class="space-y-1">
-          <label class="text-[11px] font-bold text-gray-500">새로운 비밀번호 입력</label>
-          <input type="text" x-model="myNewPassword" placeholder="변경할 새 비밀번호" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center bg-gray-50 font-bold focus:outline-none">
-        </div>
-        <div class="flex gap-2 pt-1">
-          <button @click="showMyInfoModal = false;" class="flex-1 bg-gray-200 text-gray-600 font-bold py-1.5 rounded-lg text-xs cursor-pointer">닫기</button>
-          <button @click="changeMyPassword()" class="flex-1 bg-emerald-600 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">변경 저장</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 최고 관리자 권한 로그인 모달 -->
     <div x-show="showPasswordModal" class="absolute inset-0 bg-black/60 flex justify-center items-center p-6 z-50" x-transition>
       <div class="bg-white rounded-2xl p-5 w-full max-w-xs space-y-3 shadow-2xl">
-        <h3 class="text-xs font-black text-gray-900 text-center">🔒 최고 관리자 인증 콘솔</h3>
+        <h3 class="text-xs font-black text-gray-900 text-center">🔒 관리자 로그인 인증</h3>
         <div class="space-y-2">
           <input type="text" x-model="adminIdInput" placeholder="관리자 ID" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center bg-gray-50 font-bold focus:outline-none">
-          <input type="password" x-model="adminPasswordInput" @keydown.enter="tryAdminAccess()" placeholder="인증 비밀번호" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center bg-gray-50 font-bold focus:outline-none">
+          <input type="password" x-model="adminPasswordInput" @keydown.enter="tryAdminAccess()" placeholder="비밀번호" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center bg-gray-50 font-bold focus:outline-none">
         </div>
         <div class="flex gap-2">
-          <button @click="showPasswordModal = false;" class="flex-1 bg-gray-200 text-gray-600 font-bold py-1.5 rounded-lg text-xs cursor-pointer">닫기</button>
-          <button @click="tryAdminAccess()" class="flex-1 bg-red-600 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">콘솔 진입</button>
+          <button @click="showPasswordModal = false;" class="flex-1 bg-gray-200 text-gray-600 font-bold py-1.5 rounded-lg text-xs cursor-pointer">취소</button>
+          <button @click="tryAdminAccess()" class="flex-1 bg-red-600 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">로그인</button>
         </div>
       </div>
     </div>
 
-    <!-- 하단 푸터 바 -->
     <div class="p-2.5 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold shrink-0">
-      창원경화카풀 편도/왕복 제어 프로토콜 v30 © 2026
+      창원경화카풀 세션 제어 모델 v29 © 2026
     </div>
   </div>
 
