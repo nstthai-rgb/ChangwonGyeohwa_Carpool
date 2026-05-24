@@ -750,16 +750,16 @@
               
               <div class="flex justify-between items-center bg-red-50 p-3 rounded-xl border border-red-100">
                 <div>
-                  <h2 class="text-xs font-black text-red-900">👑 최고 관리자 시스템 콘솔</h2>
+                  <h2 class="text-xs font-black text-red-900">👑 최고 관리자 시스템</h2>
                 </div>
-                <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded cursor-pointer">콘솔 아웃</button>
+                <button @click="userLogout()" class="bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded cursor-pointer">로그 아웃</button>
               </div>
 
               <!-- 공지사항 수정 -->
               <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-xs">
                 <span class="text-xs font-black text-gray-800 block">📢 공지사항 편집</span>
                 <textarea x-model="notice" rows="2" class="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold bg-gray-50 focus:bg-white focus:outline-none"></textarea>
-                <button @click="updateSystemNotice()" class="w-full bg-amber-500 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">📢 공지사항 실시간 배포</button>
+                <button @click="updateSystemNotice()" class="w-full bg-amber-500 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">📢 공지사항 등록</button>
               </div>
 
               <!-- 💬 기본 알림 메시지 기본 문구 설정 커스텀 창 -->
@@ -882,7 +882,7 @@
 
               <!-- 전역 배차 관리 -->
               <div class="space-y-2">
-                <label class="text-xs font-black text-gray-800 block">📋 전역 카풀 강제 취소 관리</label>
+                <label class="text-xs font-black text-gray-800 block">📋 카풀 취소 관리</label>
                 <div class="space-y-2">
                   <template x-for="trip in trips" :key="trip.id">
                     <div class="p-3 bg-white border border-gray-200 rounded-xl space-y-2 text-xs">
@@ -898,7 +898,7 @@
             </div>
           </template>
 
-          <!-- [👨‍✈️ 2. 운전자 모드] -->
+          <!-- [👨‍✈️ 2. 운전자] -->
           <template x-if="step === 'driver'">
             <div class="space-y-4">
               <div>
@@ -912,10 +912,10 @@
                   <label class="block font-black text-indigo-950">🔄 운행 형태 설정 (복수 선택 시 왕복)</label>
                   <div class="flex gap-4 font-bold text-gray-700">
                     <label class="flex items-center gap-1.5 cursor-pointer">
-                      <input type="checkbox" value="go" x-model="driverDriveType" class="w-4 h-4 text-indigo-600"> 갈때만 (출근/등교 등)
+                      <input type="checkbox" value="go" x-model="driverDriveType" class="w-4 h-4 text-indigo-600"> 가는 길
                     </label>
                     <label class="flex items-center gap-1.5 cursor-pointer">
-                      <input type="checkbox" value="back" x-model="driverDriveType" class="w-4 h-4 text-indigo-600"> 올때만 (퇴근/하교 등)
+                      <input type="checkbox" value="back" x-model="driverDriveType" class="w-4 h-4 text-indigo-600"> 오는 길
                     </label>
                   </div>
                 </div>
@@ -1032,7 +1032,7 @@
             </div>
           </template>
 
-          <!-- [🙋‍♀️ 3. 동승자 모드 목록] -->
+          <!-- [🙋‍♀️ 3. 동승자] -->
           <template x-if="step === 'passenger' && !selectedTrip">
             <div class="space-y-4">
               <h2 class="text-base font-black text-gray-900">🚗 실시간 가용 카풀 운행 리스트</h2>
@@ -1120,10 +1120,10 @@
                   <label class="block font-black text-purple-950">🔄 탑승 희망 조건 선택</label>
                   <div class="flex gap-3 font-bold text-gray-700">
                     <label class="flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="p_type" value="go" x-model="passengerTypeSelection"> 갈때만
+                      <input type="radio" name="p_type" value="go" x-model="passengerTypeSelection"> 가는 길
                     </label>
                     <label class="flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="p_type" value="back" x-model="passengerTypeSelection"> 올때만
+                      <input type="radio" name="p_type" value="back" x-model="passengerTypeSelection"> 오는 길
                     </label>
                     <label class="flex items-center gap-1 cursor-pointer">
                       <input type="radio" name="p_type" value="both" x-model="passengerTypeSelection"> 왕복 모두
