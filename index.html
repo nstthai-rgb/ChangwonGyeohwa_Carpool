@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>창원경화카풀 시스템 v33</title>
+    <title>창원경화카풀 시스템 v34</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -31,6 +31,7 @@
         isUserLoggedIn: false,
         loginName: '',
         loginPhoneTail: '',
+        rememberName: false, // [🆕 이름 기억하기 체크박스 상태]
         currentUser: null,
         isAdminAuthenticated: false,
         adminIdInput: '',
@@ -50,6 +51,7 @@
 
         // [⏱️ 세션 및 회원]
         sessionTimeoutMins: 180,
+        inputTimeoutMins: 180, // [🆕 관리자 수정용 임시 변수]
         allowedMembers: [],
         newMemberName: '',
         newMemberPhone: '',
@@ -93,6 +95,13 @@
             const today = new Date();
             this.inputDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
+            // [🆕 이름 기억하기 쿠키/로컬스토리지 확인]
+            const savedName = localStorage.getItem('carpool_remembered_name');
+            if (savedName) {
+                this.loginName = savedName;
+                this.rememberName = true;
+            }
+
             db.ref('systemNotice').on('value', (snapshot) => {
                 const data = snapshot.val();
                 if (data) this.notice = data;
@@ -108,7 +117,10 @@
 
             db.ref('sessionTimeoutMins').on('value', (snapshot) => {
                 const data = snapshot.val();
-                if (data !== null) this.sessionTimeoutMins = parseInt(data);
+                if (data !== null) {
+                    this.sessionTimeoutMins = parseInt(data);
+                    this.inputTimeoutMins = parseInt(data); // 관리자 폼 초기화 동기화
+                }
                 this.checkLoginSession();
             });
 
@@ -295,6 +307,17 @@
             db.ref('trips').set(dataToSave);
         },
         updateSystemNotice() { db.ref('systemNotice').set(this.notice); alert('📢 공지사항이 업데이트되었습니다.'); },
+        
+        // [🆕 관리자용 자동 로그아웃 시간 변경 함수]
+        updateSessionTimeout() {
+            const newMinutes = parseInt(this.inputTimeoutMins);
+            if (isNaN(newMinutes) || newMinutes <= 0) return alert('유효한 분 단위를 입력해 주세요.');
+            db.ref('sessionTimeoutMins').set(newMinutes)
+            .then(() => {
+                alert(`⏰ 자동 로그아웃 시간이 ${newMinutes}분으로 변경되었습니다.`);
+            });
+        },
+
         getDayOfWeek(dateString) {
             const week = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
             const dayIndex = new Date(dateString).getDay();
@@ -308,7 +331,6 @@
             if (!this.currentUser) return [];
             return this.trips.filter(trip => trip.driverName === this.currentUser.name);
         },
-        // 🔥 동승자 명단 추출 헬퍼 함수 (수락된 인원만 중복 없이 이름 추출)
         getApprovedPassengerNames(trip) {
             if (!trip.passengers) return '';
             const approvedList = Object.values(trip.passengers)
@@ -318,12 +340,27 @@
             return uniqueNames.length > 0 ? ` (동승자: ${uniqueNames.join(', ')})` : '';
         },
 
+        // [🆕 해당 카풀 노선 전체가 완전히 만석인지 검증하는 헬퍼 함수]
+        isTripFullyBooked(trip) {
+            if (trip.direction === '가는 편') return trip.remainingGoingSeats <= 0;
+            if (trip.direction === '오는 편') return trip.remainingComingSeats <= 0;
+            // 왕복인 경우 양방향 모두 만석이거나 한쪽이라도 남은 좌석이 없으면 만석 처리
+            return trip.remainingGoingSeats <= 0 && trip.remainingComingSeats <= 0;
+        },
+
         tryUserLogin() {
             if (!this.loginName.trim() || !this.loginPhoneTail.trim()) return alert('이름과 비밀번호를 입력해 주세요.');
             const targetName = String(this.loginName).replace(/\s/g, '');
             const targetTail = String(this.loginPhoneTail).replace(/\s/g, '');
             const member = this.allowedMembers.find(m => String(m.name).replace(/\s/g, '') === targetName && String(m.phoneTail).replace(/\s/g, '') === targetTail);
             if (member) {
+                // [🆕 성명 기억하기 로직 처리]
+                if (this.rememberName) {
+                    localStorage.setItem('carpool_remembered_name', this.loginName.trim());
+                } else {
+                    localStorage.removeItem('carpool_remembered_name');
+                }
+
                 this.currentUser = member;
                 this.isAdminAuthenticated = false;
                 this.isUserLoggedIn = true;
@@ -374,7 +411,9 @@
             this.isUserLoggedIn = false;
             this.isAdminAuthenticated = false;
             this.currentUser = null;
-            this.loginName = ''; this.loginPhoneTail = '';
+            // 이름 기억하기가 비활성화 상태인 경우에만 폼 인풋 청소
+            if (!this.rememberName) this.loginName = ''; 
+            this.loginPhoneTail = '';
             this.step = 'passenger';
             this.isEditingMode = false; this.editingTripId = null;
             localStorage.removeItem('carpool_session');
@@ -494,6 +533,7 @@
         },
 
         selectTrip(trip) {
+            if (this.isTripFullyBooked(trip)) return; // 만석 클릭 방어
             this.selectedTrip = trip;
             this.passengerPickup = '';
             this.passengerCount = 1;
@@ -650,7 +690,7 @@
 
         <div class="bg-gray-900 text-white px-4 py-3 flex justify-between items-center text-xs shrink-0">
             <div class="flex items-center gap-2 w-full">
-                <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v33</span>
+                <span class="text-emerald-400 font-black tracking-wider text-sm">🚗 창원경화카풀 v34</span>
                 <div class="flex items-center gap-1.5 ml-auto" x-show="isUserLoggedIn">
                     <span class="text-gray-300 font-bold" x-text="currentUser?.name === '⚙️ 관리자' ? '⚙️ 관리자' : `👤 ${currentUser?.name}님`"></span>
                     <button @click="userLogout()" class="bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded text-[10px] cursor-pointer font-bold">로그아웃</button>
@@ -673,6 +713,12 @@
                         <label class="block text-xs font-bold text-gray-500 mb-1">비밀번호 (전화번호 뒷자리 4자리)</label>
                         <input type="password" maxlength="4" x-model="loginPhoneTail" placeholder="예: 1234" class="w-full p-2.5 text-xs border border-gray-200 rounded-xl text-center font-bold bg-gray-50 focus:bg-white focus:outline-none" @keydown.enter="tryUserLogin()">
                     </div>
+                    
+                    <div class="flex items-center gap-2 px-1 py-0.5">
+                        <input type="checkbox" id="chk_remember_name" x-model="rememberName" class="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer">
+                        <label Lifor="chk_remember_name" class="text-xs text-gray-600 font-bold select-none cursor-pointer">이름 기억하기</label>
+                    </div>
+
                     <button @click="tryUserLogin()" class="w-full bg-emerald-600 text-white font-black py-3 rounded-xl text-xs shadow-md cursor-pointer"> 로그인 </button>
                 </div>
                 <button @click="showPasswordModal = true" class="text-xs text-gray-400 underline font-medium cursor-pointer"> ⚙️ 관리자 로그인 </button>
@@ -717,6 +763,15 @@
                             </div>
 
                             <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-xs">
+                                <span class="text-xs font-black text-gray-800 block">⏰ 자동 로그아웃 시간 설정</span>
+                                <div class="flex gap-2">
+                                    <input type="number" x-model="inputTimeoutMins" min="1" placeholder="분 단위" class="flex-1 p-2 border border-gray-200 rounded-lg text-xs font-bold bg-gray-50 text-center focus:outline-none">
+                                    <span class="text-xs text-gray-500 self-center font-bold">분 후 만료</span>
+                                    <button @click="updateSessionTimeout()" class="bg-gray-900 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer shrink-0">변경</button>
+                                </div>
+                            </div>
+
+                            <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-xs">
                                 <span class="text-xs font-black text-gray-800 block">📢 공지사항 변경</span>
                                 <textarea x-model="notice" rows="2" class="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold bg-gray-50 focus:outline-none"></textarea>
                                 <button @click="updateSystemNotice()" class="w-full bg-amber-500 text-white font-bold py-1.5 rounded-lg text-xs cursor-pointer">공지 업데이트</button>
@@ -749,7 +804,7 @@
                                     <button @click="addMasterStop()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg font-bold text-xs shrink-0 cursor-pointer">추가</button>
                                 </div>
                                 <div class="border-t border-gray-100 pt-2 space-y-1 max-h-44 overflow-y-auto">
-                                    <template x-for="(s, index) in masterStops" :key="s.id">
+                                    <template x-for="s, index in masterStops" :key="s.id">
                                         <div class="flex items-center gap-2 text-xs p-2 bg-white border border-gray-200 rounded-lg">
                                             <div class="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded font-black text-gray-500 select-none cursor-row-resize touch-none"
                                                  draggable="true" 
@@ -807,7 +862,7 @@
                                 <div class="grid grid-cols-2 gap-2">
                                     <div>
                                         <label class="block font-bold text-gray-500 mb-1">⏰ 출발 시각</label>
-                                        <input type="time" x-model="inputTime" :disabled="isEditingMode && hasApprovedPassengers(trips.find(t=>t.id===editingTripId))" class="w-full p-2 border border-gray-200 rounded-lg bg-white disabled:bg-gray-200">
+                                        <input type="time" x-model="inputTime" :disabled="isEditingMode && hasApprovedPassengers(trips.find(t=>t.id===editingTripId))" class="w-full p-2 border border-gray-200 rounded-lg bg-white">
                                     </div>
                                     <div>
                                         <label class="block font-bold text-gray-500 mb-1">👥 총 모집 좌석수</label>
@@ -833,7 +888,7 @@
                             <div class="space-y-1.5">
                                 <label class="text-xs font-bold text-gray-700 block">🔄 경로 순서 변경 (☰ 핸들 영역 사용)</label>
                                 <div class="space-y-1 max-h-36 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-200 border-dashed">
-                                    <template x-for="(stop, index) in driverOrderedStops" :key="stop.id">
+                                    <template x-for="stop, index in driverOrderedStops" :key="stop.id">
                                         <div class="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded-lg text-xs">
                                             <div class="flex items-center gap-1 bg-blue-50 text-blue-600 font-black px-2 py-1 rounded select-none cursor-row-resize touch-none"
                                                  draggable="true" 
@@ -949,7 +1004,7 @@
                                         </div>
                                         
                                         <div class="flex flex-wrap items-center gap-1 text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                                            <template x-for="(st, idx) in trip.route" :key="st.id">
+                                            <template x-for="st, idx in trip.route" :key="st.id">
                                                 <div class="flex items-center gap-0.5">
                                                     <span class="font-bold text-gray-700 bg-white px-1.5 py-0.5 rounded border border-gray-100" x-text="st.name"></span>
                                                     <span x-show="idx < trip.route.length - 1" class="text-gray-300 font-bold">→</span>
@@ -971,7 +1026,12 @@
                                             </template>
                                             
                                             <div class="flex justify-end mt-1">
-                                                <button @click="selectTrip(trip)" class="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer">탑승 신청하기</button>
+                                                <template x-if="!isTripFullyBooked(trip)">
+                                                    <button @click="selectTrip(trip)" class="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer">탑승 신청하기</button>
+                                                </template>
+                                                <template x-if="isTripFullyBooked(trip)">
+                                                    <button class="bg-red-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs opacity-60 cursor-not-allowed" disabled>⚠️ 만석 (신청 불가)</button>
+                                                </template>
                                             </div>
                                         </div>
                                     </div>
@@ -1023,7 +1083,7 @@
                                 <div class="space-y-1 max-h-48 overflow-y-auto">
                                     <template x-for="stop in selectedTrip.route" :key="stop.id">
                                         <label :class="passengerPickup === stop.name ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200'" class="flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs bg-white">
-                                            <input type="radio" name="p_pickup_v33" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
+                                            <input type="radio" name="p_pickup_v34" :value="stop.name" x-model="passengerPickup" class="w-3.5 h-3.5 text-emerald-600">
                                             <span class="font-extrabold text-gray-800" x-text="stop.name"></span>
                                         </label>
                                     </template>
@@ -1041,7 +1101,7 @@
             <div class="bg-white rounded-2xl p-5 w-full max-w-xs space-y-3 shadow-2xl">
                 <h3 class="text-xs font-black text-gray-900 text-center">🔒 관리자 로그인</h3>
                 <div class="space-y-2">
-                    <input type="text" x-model="adminIdInput" placeholder="관리자 ID" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center font-bold focus:outline-none">
+                    <input type="text" x-model="adminIdInput" placeholder="text-center font-bold focus:outline-none" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center font-bold focus:outline-none">
                     <input type="password" x-model="adminPasswordInput" @keydown.enter="tryAdminAccess()" placeholder="보안 비밀번호" class="w-full p-2 text-xs border border-gray-200 rounded-lg text-center font-bold focus:outline-none">
                 </div>
                 <div class="flex gap-2">
@@ -1052,7 +1112,7 @@
         </div>
 
         <div class="p-2.5 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold shrink-0">
-            창원경화카풀 시스템 v33 © 2026
+            창원경화카풀 시스템 v34 © 2026
         </div>
     </div>
 
